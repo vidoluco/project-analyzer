@@ -219,7 +219,43 @@ def analyze_market_sentiment(project_name):
     except Exception as e:
         return f"Error in market analysis: {str(e)}"
 
+def extract_project_name(text):
+    url = "https://api.perplexity.ai/chat/completions"
+    
+    messages = [
+        {"role": "system", "content": "You are an expert at analyzing whitepapers. Extract the main project/token name from the whitepaper text. Return ONLY the name, nothing else."},
+        {"role": "user", "content": f"What is the name of the project/token described in this whitepaper? Return ONLY the name: {text[:2000]}"}
+    ]
+    
+    payload = {
+        "model": "llama-3.1-sonar-small-128k-online",
+        "messages": messages,
+        "temperature": 0.1
+    }
+    
+    headers = {
+        "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        project_name = response.json()['choices'][0]['message']['content'].strip()
+        return project_name
+    except Exception as e:
+        return None
+
 def main():
+    # Add navigation
+    st.sidebar.title("Navigation")
+    page = st.sidebar.radio("Go to", ["Whitepaper Analysis", "Project Scraper"])
+    
+    if page == "Project Scraper":
+        import scraper
+        scraper.main()
+        return
+    
     st.title("Whitepaper Analysis Tool")
     
     # Create two columns: main content and chat
@@ -227,12 +263,20 @@ def main():
     
     with col1:
         st.write("Upload a PDF whitepaper for comprehensive analysis")
-        project_name = st.text_input("Project Name", help="Enter the name of the project for market research")
         uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
         
         if uploaded_file:
             text = extract_text_from_pdf(uploaded_file)
             st.session_state.whitepaper_text = text  # Store the text in session state
+            
+            # Extract project name from whitepaper
+            with st.spinner("Extracting project information..."):
+                project_name = extract_project_name(text)
+                if project_name:
+                    st.success(f"Analyzing project: {project_name}")
+                else:
+                    st.error("Could not automatically detect project name")
+                    project_name = "Unknown Project"
             
             aspects = {
                 "Technical Foundation": 25,
@@ -272,51 +316,48 @@ def main():
                 st.error("High-risk project, major red flags")
             
             # Market Research and Community Analysis
-            if project_name:
-                st.subheader("Market Research & Community Analysis")
-                
-                # Create tabs for different analyses
-                market_tab, cmc_tab, reddit_tab = st.tabs(["General Market Analysis", "CoinMarketCap Data", "Reddit Analysis"])
-                
-                with market_tab:
-                    with st.spinner("Analyzing general market sentiment..."):
-                        market_analysis = analyze_market_sentiment(project_name)
-                        st.write(market_analysis)
-                
-                with cmc_tab:
-                    with st.spinner("Fetching CoinMarketCap data..."):
-                        cmc_analysis = analyze_coinmarketcap_data(project_name)
-                        st.write(cmc_analysis)
-                
-                with reddit_tab:
-                    with st.spinner("Analyzing Reddit sentiment..."):
-                        reddit_analysis = analyze_reddit_sentiment(project_name)
-                        st.write(reddit_analysis)
-                
-                # Add research sources
-                st.subheader("Data Sources")
-                st.info("""
-                The analysis is based on real-time data from:
-                
-                Market Data:
-                - CoinMarketCap metrics and trading data
-                - Market aggregators and price feeds
-                - Trading volume and liquidity data
-                
-                Community Data:
-                - Reddit communities and discussions
-                - Twitter engagement metrics
-                - Discord community activity
-                - Telegram groups
-                
-                News and Analysis:
-                - Cryptocurrency news outlets
-                - Expert reviews and analysis
-                - Technical analysis reports
-                - Development updates
-                """)
-            else:
-                st.info("Enter the project name above to get market research and community analysis.")
+            st.subheader("Market Research & Community Analysis")
+            
+            # Create tabs for different analyses
+            market_tab, cmc_tab, reddit_tab = st.tabs(["General Market Analysis", "CoinMarketCap Data", "Reddit Analysis"])
+            
+            with market_tab:
+                with st.spinner("Analyzing general market sentiment..."):
+                    market_analysis = analyze_market_sentiment(project_name)
+                    st.write(market_analysis)
+            
+            with cmc_tab:
+                with st.spinner("Fetching CoinMarketCap data..."):
+                    cmc_analysis = analyze_coinmarketcap_data(project_name)
+                    st.write(cmc_analysis)
+            
+            with reddit_tab:
+                with st.spinner("Analyzing Reddit sentiment..."):
+                    reddit_analysis = analyze_reddit_sentiment(project_name)
+                    st.write(reddit_analysis)
+            
+            # Add research sources
+            st.subheader("Data Sources")
+            st.info("""
+            The analysis is based on real-time data from:
+            
+            Market Data:
+            - CoinMarketCap metrics and trading data
+            - Market aggregators and price feeds
+            - Trading volume and liquidity data
+            
+            Community Data:
+            - Reddit communities and discussions
+            - Twitter engagement metrics
+            - Discord community activity
+            - Telegram groups
+            
+            News and Analysis:
+            - Cryptocurrency news outlets
+            - Expert reviews and analysis
+            - Technical analysis reports
+            - Development updates
+            """)
     
     with col2:
         st.sidebar.title("Chat with Analysis Assistant")

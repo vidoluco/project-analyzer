@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "nova-gcp-infra",
+  "private_key_id": "d3488d86e9fa6ccee044219d37a0d17d70103cca",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDX7+Q0zkEVFkzL\n1sx2747O8L3VeBaU/ebc9c7628c0QsWbEkQfjrvvF26gOm8Nnu5QXBuLnQf5gKJB\nKS2P9iIRwwgQeVbFskMqt77ZowbEwj/BLeKL64zhzFeqqsp6EKGpv4LU+X9f2/ko\n2eGlGwJKc0oFuNCKWvdx2nrTIxLDpOHwmYKLkj7rL6uA50Govb45p/Ri3JEKTW3s\nhFwmXh1AR1U2r+tmwH4OK2LgLP6SMOBfdks74a4lTVJk1/X4bA2SJOniNyev5oU8\nvJqc8anDK//YCDhAIGfNCJ9Hp8rI2gQYvnyEXSnSyd5UboLKWMedyus38x30knQC\ny8rAPxdFAgMBAAECggEAAQgDRgFKLEib+0k+Vr8UJobd0Twul22TAbEm2OndzLEY\n8oGm06PB4AVzoM5Go4ED0FxwQT1xwU5M+BSzRAG/7efJjRKXSIBuc7DG95EgwiXP\nWiPW9iYc2SM5s/X225hivUXN4SiD5DhPu1M3EavMWgCs9NQKIu8GSYPqnEGJoGeR\n7+SCmRiBCfvaYdwLBgBLEixxEoUuwPo944oFmMOSdJFZ/EHeF20VKDYZdx2T+GzZ\n8mFGtncsv+5OViGgl8Q6D42bKOBoWRdWJ4ZGmluR8KB+Wd6sFOTVvoCgKqBYXxz8\n2eb44NYGtLU8mblbFxhgY2GP5SPZVepUj/KtgwDg4QKBgQD+wCgDAlk74i3OdaMR\nNnl6UZXxSp3qD/x3Y0unQMsdVDEdKuI5B98sQT+EUhB1vzldi/1YykzvGrEHagz0\n4Ptt8pwJBhyZQ/W4OJoVcRhoEoa7iXBis+B2rcaBe9i0BcYLI0NCM3/izQGwUj+v\ndRlttT2pQK5K/u2PmjZ7QfqVHQKBgQDY/wELt8JOszeLfWxck4qLf8diAFE9Vr3a\nFsouHrBDsVtJirJryrMKZ0sCXdIJOvwdN+QD1KNK0H6hUYTkJKx4i1whFBMC+OA9\n/7GMA6FlhB/38icBQEEOSk3Wbvf8Nuy+KScqHWpUU4dQZF2Y5NCKXLumz2bJVm2z\n7OKiXGo6SQKBgQCysfGfIr+bXO2KvEPVaCPQJHiMWC3rKKmMyW8g9DdF7G/DKPik\nzpvCfEZkt/fp0GgZ8X+WD9nlgxCYxdAu2b4kgqDnR406CUzMm4+h6MIZBp3R4Pef\nlNOoC/+Jhmkc5kvkNikQv/U+D1XW6+rWVcqvhQmqtr9LxgS3zZHX5hEzFQKBgBcI\n8uZ4ilLqaXIQTWmCbAmk9dhsajNVuu+kza+ZqGJ3OFaVN52Dtf/buTW2Ge7K6Sp8\n3WKetvrhKSAc1DuXvQtK1+vXArGlE8DhHMrdM8vf+7jJZuSWGpHWx26E9yQ5/GWv\nXq30023CNDIPhXQOjiix8WWizKmA2EJqWiCcKNapAoGBANjjHCmLE0x4Ok/SNrYm\nkbVOD5oUl/aBgwlMFCi5K9Iqne6x0KJ1J5DLl9BlegTUb4R7KhEOef+aL4ujgCmO\nwCsjhF8Pxr0FMj/tPFQxu9Q/4kFW4D89cVYyk+MUAC5WpZ/mIgs1tok2fm4QpSTS\nk9nT1oxkwWx0UWdYZ6ddQZoM\n-----END PRIVATE KEY-----\n",
+  "client_email": "nova-default-service-account@nova-gcp-infra.iam.gserviceaccount.com",
+  "client_id": "114966936791122547298",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/nova-default-service-account%40nova-gcp-infra.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

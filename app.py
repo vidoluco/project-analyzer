@@ -16,6 +16,7 @@ from pathlib import Path
 import io
 import firebase_admin
 from firebase_admin import credentials, firestore
+import time
 
 load_dotenv()
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1' 
@@ -110,7 +111,8 @@ def is_pdf_url(url):
     try:
         # Direct PDF check
         response = requests.head(url, allow_redirects=True)
-        if 'application/pdf' in response.headers.get('content-type', '').lower():
+        content_type = response.headers.get('content-type', '').lower()
+        if 'application/pdf' in content_type:
             return True
             
         # Check if it's a PDF viewer page
@@ -125,25 +127,38 @@ def is_pdf_url(url):
             '.pdf-viewer',
             '#pdf-viewer',
             'meta[content*="pdf"]',
-            'a[href$=".pdf"]'
+            'a[href$=".pdf"]',
+            '[src$=".pdf"]',
+            '[data-src$=".pdf"]'
         ]
         
         for indicator in pdf_indicators:
             elements = soup.select(indicator)
             if elements:
-                # Try to extract PDF URL from viewer
                 for element in elements:
-                    pdf_url = element.get('src') or element.get('href')
-                    if pdf_url and pdf_url.lower().endswith('.pdf'):
-                        return pdf_url
+                    # Try different attributes that might contain the PDF URL
+                    for attr in ['src', 'href', 'data', 'data-src']:
+                        pdf_url = element.get(attr)
+                        if pdf_url:
+                            if pdf_url.lower().endswith('.pdf'):
+                                return urljoin(url, pdf_url)
+                            elif 'pdf' in pdf_url.lower():
+                                # Try to follow the URL to see if it redirects to a PDF
+                                try:
+                                    pdf_response = requests.head(urljoin(url, pdf_url), allow_redirects=True)
+                                    if 'application/pdf' in pdf_response.headers.get('content-type', '').lower():
+                                        return pdf_response.url
+                                except:
+                                    continue
         
         # Check for PDF in page content
-        pdf_links = soup.select('a[href$=".pdf"]')
+        pdf_links = soup.select('a[href*=".pdf"], a[href*="pdf"]')
         if pdf_links:
             return urljoin(url, pdf_links[0]['href'])
             
         return False
-    except:
+    except Exception as e:
+        st.error(f"Error checking PDF URL: {str(e)}")
         return False
 
 def download_pdf(url):
@@ -163,9 +178,9 @@ def scrape_gitbook_page(url):
         
         # Try different content selectors for various GitBook versions
         content_selectors = [
-            '.page-inner',  # Classic GitBook
-            'article',  # Generic article
+            'main article',  # Modern GitBook main content
             '.markdown-section',  # Modern GitBook
+            '.page-inner',  # Classic GitBook
             '.reset-3c756112--content-6f63cbbe',  # Modern GitBook specific
             '.documentation-content',  # Common documentation class
             'main',  # Main content area
@@ -180,7 +195,7 @@ def scrape_gitbook_page(url):
         
         if content:
             # Remove unnecessary elements
-            for element in content.select('.js-toc-content, .js-toc, nav, header, footer, .toolbar-button'):
+            for element in content.select('.js-toc-content, .js-toc, nav, header, footer, .toolbar-button, [class*="gitbook-"]'):
                 element.decompose()
             
             # Get title from various possible locations
@@ -189,7 +204,8 @@ def scrape_gitbook_page(url):
                 'h1:first-of-type',
                 '.page-title',
                 '.header-title',
-                'title'
+                'title',
+                '[class*="heading"]'
             ]
             
             for selector in title_selectors:
@@ -198,9 +214,28 @@ def scrape_gitbook_page(url):
                     title = title_elem.get_text(strip=True)
                     break
             
+            # Extract images
+            images = []
+            for img in content.find_all('img'):
+                src = img.get('src')
+                if src:
+                    if src.startswith('//'):
+                        src = 'https:' + src
+                    elif src.startswith('/'):
+                        src = urljoin(url, src)
+                    else:
+                        src = urljoin(url, src)
+                    
+                    alt = img.get('alt', '')
+                    images.append({
+                        'src': src,
+                        'alt': alt
+                    })
+            
             return {
                 'title': title or soup.title.string if soup.title else '',
-                'content': content.get_text(separator='\n', strip=True)
+                'content': content.get_text(separator='\n', strip=True),
+                'images': images
             }
         return None
     except Exception as e:
@@ -214,26 +249,14 @@ def get_gitbook_menu(url):
         soup = BeautifulSoup(response.text, 'html.parser')
         
         menu_items = []
-        # Try different menu selectors for various GitBook versions
-        menu_selectors = [
-            '.summary',  # Classic GitBook
-            '.book-summary',  # Alternative GitBook
-            'nav',  # Generic navigation
-            '.reset-3c756112--menuContainer-6683485e',  # Modern GitBook
-            '.book-menu',  # Common menu class
-            '.sidebar-nav',  # Common sidebar navigation
-            '.table-of-contents'  # Generic ToC
-        ]
         
-        menu = None
-        for selector in menu_selectors:
-            menu = soup.select_one(selector)
-            if menu:
-                break
-        
-        if menu:
-            # Get all links from menu
-            for link in menu.select('a[href]'):
+        def extract_menu_items(container):
+            items = []
+            if not container:
+                return items
+                
+            # Look for links in the container
+            for link in container.select('a[href]'):
                 href = link.get('href')
                 if href and not href.startswith(('#', 'javascript:', 'mailto:')):
                     # Clean up the URL
@@ -244,24 +267,72 @@ def get_gitbook_menu(url):
                     else:
                         href = urljoin(url, href)
                     
-                    menu_items.append({
-                        'title': link.get_text(strip=True),
-                        'url': href
-                    })
+                    # Get the title, looking for emoji and text separately
+                    title_parts = []
+                    emoji = link.select_one('.font-emoji')
+                    if emoji:
+                        title_parts.append(emoji.get_text(strip=True))
+                    
+                    # Get the text content excluding emoji
+                    text_nodes = [node for node in link.strings if node.strip()]
+                    text = ' '.join(text_nodes)
+                    if text:
+                        title_parts.append(text)
+                    
+                    title = ' '.join(filter(None, title_parts))
+                    
+                    if title and href and not any(item['url'] == href for item in items):
+                        items.append({
+                            'title': title,
+                            'url': href,
+                            'level': len(link.find_parents(['li', 'ul']))
+                        })
+            
+            # Look for nested menus
+            for submenu in container.select('ul, [class*="submenu"], [class*="children"]'):
+                items.extend(extract_menu_items(submenu))
+            
+            return items
+
+        # Try different menu containers
+        menu_selectors = [
+            'nav',  # Generic navigation
+            'aside',  # Sidebar
+            '[class*="menu"]',  # Any menu container
+            '[class*="sidebar"]',  # Any sidebar container
+            '[class*="navigation"]',  # Navigation container
+            '.book-summary',  # Classic GitBook
+            '[class*="table-of-contents"]'  # ToC container
+        ]
         
-        # If no menu found, try to find links in the main content
-        if not menu_items:
-            content_links = soup.select('main a[href], .content a[href], article a[href]')
-            for link in content_links:
-                href = link.get('href')
-                if href and not href.startswith(('#', 'javascript:', 'mailto:')):
-                    href = urljoin(url, href)
-                    menu_items.append({
-                        'title': link.get_text(strip=True),
-                        'url': href
-                    })
+        for selector in menu_selectors:
+            menu_containers = soup.select(selector)
+            for container in menu_containers:
+                items = extract_menu_items(container)
+                if items:
+                    menu_items.extend(items)
         
-        return menu_items
+        # Remove duplicates while preserving order
+        seen_urls = set()
+        unique_items = []
+        for item in menu_items:
+            if item['url'] not in seen_urls:
+                seen_urls.add(item['url'])
+                unique_items.append(item)
+        
+        # Sort by level and URL to maintain hierarchy
+        unique_items.sort(key=lambda x: (x.get('level', 0), x['url']))
+        
+        if not unique_items:
+            st.warning("No menu structure found. Attempting to extract links from content...")
+            # Try to find links in the main content as a fallback
+            content_containers = soup.select('main, article, .content, [class*="markdown"]')
+            for container in content_containers:
+                items = extract_menu_items(container)
+                if items:
+                    unique_items.extend(items)
+        
+        return unique_items
     except Exception as e:
         st.error(f"Error getting menu: {str(e)}")
         return []
@@ -288,18 +359,26 @@ def scrape_gitbook(url):
     total_items = len(menu_items)
     
     try:
+        st.write(f"Found {total_items} pages to scrape")
         for i, item in enumerate(menu_items):
             # Update progress
             current_progress = (i + 1) / total_items
             progress_bar.progress(current_progress, text=f"Scraping: {item['title']} ({i+1}/{total_items})")
             
+            # Add level indicator for nested structure
+            level_indicator = "  " * item.get('level', 0) + "└─ " if item.get('level', 0) > 0 else ""
+            
             # Scrape the page
             page_content = scrape_gitbook_page(item['url'])
             if page_content:
                 content.append(page_content)
-                st.success(f"✓ {item['title']}")
+                st.success(f"{level_indicator}✓ {item['title']}")
             else:
-                st.warning(f"⚠️ Failed to scrape: {item['title']}")
+                st.warning(f"{level_indicator}⚠️ Failed to scrape: {item['title']}")
+                
+            # Small delay to avoid overwhelming the server
+            time.sleep(0.5)
+            
     except Exception as e:
         st.error(f"Error during scraping: {str(e)}")
     finally:
@@ -318,16 +397,48 @@ def create_pdf_from_content(content):
     try:
         # Create temporary HTML file
         with tempfile.NamedTemporaryFile(suffix='.html', delete=False, mode='w', encoding='utf-8') as f:
-            html_content = "<html><body>"
+            html_content = """
+            <html>
+            <head>
+                <style>
+                    body { font-family: Arial, sans-serif; line-height: 1.6; }
+                    img { max-width: 100%; height: auto; margin: 10px 0; }
+                    h1 { color: #333; border-bottom: 1px solid #ccc; padding-bottom: 10px; }
+                    hr { margin: 20px 0; border: none; border-top: 1px solid #eee; }
+                </style>
+            </head>
+            <body>
+            """
+            
             for page in content:
-                html_content += f"<h1>{page['title']}</h1>{page['content']}<hr>"
+                html_content += f"<h1>{page['title']}</h1>"
+                
+                # Add images if they exist
+                if 'images' in page and page['images']:
+                    for img in page['images']:
+                        html_content += f'<img src="{img["src"]}" alt="{img["alt"]}" /><br>'
+                
+                html_content += f"{page['content']}<hr>"
+            
             html_content += "</body></html>"
             f.write(html_content)
             temp_html = f.name
 
+        # Convert HTML to PDF with better options
+        options = {
+            'page-size': 'A4',
+            'margin-top': '20mm',
+            'margin-right': '20mm',
+            'margin-bottom': '20mm',
+            'margin-left': '20mm',
+            'encoding': 'UTF-8',
+            'no-images': False,
+            'enable-local-file-access': True
+        }
+        
         # Convert HTML to PDF
         pdf_output = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False)
-        pdfkit.from_file(temp_html, pdf_output.name)
+        pdfkit.from_file(temp_html, pdf_output.name, options=options)
         
         # Read the PDF content
         with open(pdf_output.name, 'rb') as f:
@@ -549,11 +660,314 @@ def extract_project_name(text):
         return None
 
 def main():
-    st.title("Crypto Project Analyzer")
+    # Custom CSS for styling
+    st.markdown("""
+        <style>
+        /* Main theme colors */
+        :root {
+            --nova-primary: #0A2540;
+            --nova-secondary: #00A6FF;
+            --nova-accent: #FF6B6B;
+            --nova-background: #0F172A;
+            --nova-surface: #1E293B;
+            --nova-text: #E2E8F0;
+            --nova-text-secondary: #94A3B8;
+            --nova-success: #10B981;
+            --nova-warning: #F59E0B;
+            --nova-error: #EF4444;
+            --nova-info: #3B82F6;
+        }
+        
+        /* Hide Streamlit branding */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        
+        /* Global styles */
+        .stApp {
+            background: linear-gradient(135deg, var(--nova-background), var(--nova-surface)) !important;
+            color: var(--nova-text) !important;
+        }
+        
+        /* Header styling */
+        div[data-testid="stHeader"] {
+            background: none;
+        }
+        
+        .main-header {
+            background: linear-gradient(135deg, rgba(10, 37, 64, 0.95) 0%, rgba(0, 166, 255, 0.95) 100%);
+            padding: 3rem 2rem;
+            border-radius: 20px;
+            color: white;
+            text-align: center;
+            margin: 1rem 0 2rem 0;
+            box-shadow: 0 8px 32px rgba(0, 166, 255, 0.15);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .main-header h1 {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            font-weight: 700;
+            background: linear-gradient(to right, #fff, #E2E8F0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        }
+        
+        .main-header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+            max-width: 600px;
+            margin: 0 auto;
+            line-height: 1.6;
+        }
+        
+        /* Sidebar styling */
+        section[data-testid="stSidebar"] {
+            background-color: var(--nova-surface);
+            padding: 2rem 1rem;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        section[data-testid="stSidebar"] > div {
+            padding-top: 0;
+        }
+        
+        section[data-testid="stSidebar"] .stRadio > label {
+            color: var(--nova-text) !important;
+        }
+        
+        section[data-testid="stSidebar"] .stRadio > div {
+            color: var(--nova-text-secondary) !important;
+        }
+        
+        /* Message styling */
+        .element-container div[data-testid="stMarkdownContainer"] > div {
+            padding: 1rem;
+            border-radius: 12px;
+            margin: 1rem 0;
+            background: var(--nova-surface);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Success message */
+        .stSuccess {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.1)) !important;
+            border: 1px solid var(--nova-success) !important;
+            color: #A7F3D0 !important;
+            padding: 1rem !important;
+            border-radius: 12px !important;
+            margin: 1rem 0 !important;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.1) !important;
+        }
+        
+        /* Warning message */
+        .stWarning {
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(245, 158, 11, 0.1)) !important;
+            border: 1px solid var(--nova-warning) !important;
+            color: #FCD34D !important;
+            padding: 1rem !important;
+            border-radius: 12px !important;
+            margin: 1rem 0 !important;
+            box-shadow: 0 4px 15px rgba(245, 158, 11, 0.1) !important;
+        }
+        
+        /* Error message */
+        .stError {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(239, 68, 68, 0.1)) !important;
+            border: 1px solid var(--nova-error) !important;
+            color: #FCA5A5 !important;
+            padding: 1rem !important;
+            border-radius: 12px !important;
+            margin: 1rem 0 !important;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.1) !important;
+        }
+        
+        /* Info message */
+        .stInfo {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(59, 130, 246, 0.1)) !important;
+            border: 1px solid var(--nova-info) !important;
+            color: #93C5FD !important;
+            padding: 1rem !important;
+            border-radius: 12px !important;
+            margin: 1rem 0 !important;
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.1) !important;
+        }
+        
+        /* Login button styling */
+        a[href*="accounts.google.com"] {
+            display: inline-block;
+            background: linear-gradient(135deg, #0A2540, #00A6FF);
+            color: white !important;
+            text-decoration: none !important;
+            padding: 1rem 2rem;
+            border-radius: 12px;
+            font-weight: 500;
+            margin-top: 2rem;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 4px 15px rgba(0, 166, 255, 0.2);
+        }
+        
+        a[href*="accounts.google.com"]:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 166, 255, 0.3);
+        }
+        
+        /* File uploader styling */
+        .stUploadButton > button {
+            background: var(--nova-surface) !important;
+            color: var(--nova-text) !important;
+            border: 2px dashed rgba(0, 166, 255, 0.5) !important;
+            border-radius: 12px !important;
+            padding: 2rem !important;
+            width: 100% !important;
+            transition: all 0.3s ease !important;
+        }
+        
+        .stUploadButton > button:hover {
+            border-color: var(--nova-secondary) !important;
+            background: rgba(0, 166, 255, 0.1) !important;
+            transform: translateY(-2px);
+        }
+        
+        /* Button styling */
+        .stButton > button {
+            background: linear-gradient(135deg, #0A2540, #00A6FF) !important;
+            color: white !important;
+            border: none !important;
+            padding: 0.75rem 2rem !important;
+            border-radius: 12px !important;
+            font-weight: 500 !important;
+            transition: all 0.3s ease !important;
+            text-transform: uppercase !important;
+            letter-spacing: 0.5px !important;
+        }
+        
+        .stButton > button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 166, 255, 0.3) !important;
+        }
+        
+        /* Input styling */
+        .stTextInput > div > div {
+            background: var(--nova-surface) !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border-radius: 12px !important;
+            color: var(--nova-text) !important;
+            padding: 0.75rem !important;
+        }
+        
+        .stTextInput > div > div:focus-within {
+            border-color: var(--nova-secondary) !important;
+            box-shadow: 0 0 0 2px rgba(0, 166, 255, 0.2) !important;
+        }
+        
+        /* Tabs styling */
+        .stTabs [data-baseweb="tab-list"] {
+            background: var(--nova-surface);
+            padding: 0.75rem;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .stTabs [data-baseweb="tab"] {
+            background: transparent;
+            color: var(--nova-text);
+            border-radius: 8px;
+            margin: 0 0.25rem;
+            padding: 0.75rem 1.5rem;
+        }
+        
+        .stTabs [data-baseweb="tab"][aria-selected="true"] {
+            background: linear-gradient(135deg, rgba(10, 37, 64, 0.95), rgba(0, 166, 255, 0.95));
+            color: white;
+        }
+        
+        /* Chat container styling */
+        .chat-container {
+            background: var(--nova-surface);
+            border-radius: 15px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            height: calc(100vh - 300px);
+            overflow-y: auto;
+            margin-bottom: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        /* Score card styling */
+        .score-card {
+            background: var(--nova-surface);
+            padding: 2rem;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            margin: 1.5rem 0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .score-card h2 {
+            color: var(--nova-text);
+            margin-bottom: 1rem;
+            font-size: 1.8rem;
+            font-weight: 600;
+            background: linear-gradient(to right, #fff, #E2E8F0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        /* Metric styling */
+        [data-testid="stMetricValue"] {
+            background: linear-gradient(135deg, rgba(10, 37, 64, 0.95), rgba(0, 166, 255, 0.95));
+            padding: 1.5rem;
+            border-radius: 12px;
+            color: white !important;
+            font-size: 1.8rem !important;
+            font-weight: 700 !important;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+        
+        [data-testid="stMetricLabel"] {
+            font-size: 1.1rem !important;
+            font-weight: 500 !important;
+            color: var(--nova-text) !important;
+            margin-top: 0.75rem !important;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        /* Email display styling */
+        .email-display {
+            color: var(--nova-text);
+            background: rgba(255, 255, 255, 0.1);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            margin: 0.5rem 0;
+            font-family: monospace;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # Hide Streamlit menu and footer
+    st.markdown("""
+        <style>
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        </style>
+    """, unsafe_allow_html=True)
     
-    # Check if user is authenticated
+    # Remove the title since we'll use custom headers
     if not st.session_state.user:
-        st.write("Please sign in with Google to access the application")
+        st.markdown("""
+            <div class="main-header">
+                <h1>Welcome to NOVA Crypto Analyzer</h1>
+                <p>Please sign in with Google to access the application</p>
+            </div>
+        """, unsafe_allow_html=True)
         user_info = auth_flow()
         if user_info:
             st.session_state.user = user_info
@@ -562,23 +976,36 @@ def main():
 
     # Only show the rest of the app if user is authenticated
     with st.sidebar:
-        st.title("Navigation")
-        page = st.radio("Go to", ["Whitepaper Analyzer", "Whitepaper Scraper"])
+        st.image("https://placehold.co/200x80?text=NOVA+Logo", use_column_width=True)
+        st.markdown("""
+            <div style='margin-bottom: 2rem;'>
+                <h2 style='color: white; font-size: 1.5rem; margin-bottom: 1rem;'>Navigation</h2>
+            </div>
+        """, unsafe_allow_html=True)
+        page = st.radio("", ["Whitepaper Analyzer", "Whitepaper Scraper"])
         
-        st.write(f"Logged in as: {st.session_state.user['email']}")
+        st.markdown(f"""
+            <div style='padding: 1rem; background: rgba(255,255,255,0.1); border-radius: 10px; margin-top: 2rem;'>
+                <p style='color: #E0E0E0; margin-bottom: 0.5rem;'>Logged in as:</p>
+                <p style='color: white; font-weight: 500;'>{st.session_state.user['email']}</p>
+            </div>
+        """, unsafe_allow_html=True)
         if st.button("Logout"):
             st.session_state.user = None
             st.experimental_rerun()
 
     if page == "Whitepaper Analyzer":
-        st.title("Crypto Whitepaper Analyzer")
+        st.markdown("""
+            <div class="main-header">
+                <h1>Crypto Whitepaper Analyzer</h1>
+                <p>Upload a PDF whitepaper for comprehensive analysis</p>
+            </div>
+        """, unsafe_allow_html=True)
         
         # Main content area
         col1, col2 = st.columns([2, 1])
 
         with col1:
-            st.write("Upload a PDF whitepaper for comprehensive analysis")
-            
             uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
             if uploaded_file is not None:
                 # Extract text from PDF
@@ -591,7 +1018,11 @@ def main():
                 
                 # Attempt to extract project name
                 project_name = extract_project_name(whitepaper_text)
-                st.write(f"Detected Project: {project_name}")
+                st.markdown(f"""
+                    <div class="score-card">
+                        <h2>Project Analysis: {project_name}</h2>
+                    </div>
+                """, unsafe_allow_html=True)
                 
                 # Perform analysis
                 with st.spinner("Analyzing Whitepaper..."):
@@ -620,7 +1051,11 @@ def main():
                     
                     # Total Score
                     total_score = tokenomics_score + tech_score + market_score + team_score
-                    st.header(f"Total Project Score: {total_score}/100")
+                    st.markdown(f"""
+                        <div class="score-card">
+                            <h2>Total Project Score: {total_score}/100</h2>
+                        </div>
+                    """, unsafe_allow_html=True)
                     
                     # Additional Market Data in expandable sections
                     with st.expander("CoinMarketCap Data"):
@@ -637,13 +1072,20 @@ def main():
 
         # Chat interface in the sidebar
         with col2:
-            st.subheader("Whitepaper Chat")
+            st.markdown("""
+                <div style='background: white; padding: 1rem; border-radius: 10px; margin-bottom: 1rem;'>
+                    <h2 style='color: var(--nova-primary); margin: 0;'>Whitepaper Chat</h2>
+                </div>
+            """, unsafe_allow_html=True)
             
-            # Create a container for chat messages with custom height
+            # Create a container for chat messages
             chat_container = st.container()
-            
-            # Add some spacing
-            st.write("")
+            with chat_container:
+                st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+                for message in st.session_state.messages:
+                    with st.chat_message(message["role"]):
+                        st.markdown(message["content"])
+                st.markdown('</div>', unsafe_allow_html=True)
             
             # Input box at the bottom
             if prompt := st.chat_input("Ask about the whitepaper"):
@@ -654,15 +1096,15 @@ def main():
                     st.session_state.messages.append({"role": "assistant", "content": response})
                 else:
                     st.warning("Please upload a whitepaper first.")
-            
-            # Display messages in the container
-            with chat_container:
-                for message in st.session_state.messages:
-                    with st.chat_message(message["role"]):
-                        st.markdown(message["content"])
 
     else:  # Whitepaper Scraper page
-        st.title("Whitepaper Scraper")
+        st.markdown("""
+            <div class="main-header">
+                <h1>Whitepaper Scraper</h1>
+                <p>Enter a GitBook URL or direct PDF link to extract the whitepaper</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
         url = st.text_input("Enter GitBook URL or direct PDF link:")
         
         if url:

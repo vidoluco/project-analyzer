@@ -493,42 +493,53 @@ def extract_text_from_pdf(pdf_file):
     return text
 
 def auth_flow():
-    # Create flow instance
-    flow = Flow.from_client_secrets_file(
-        'client_secret_487298376198-140i5gfel69hkaue4jqn27kjgo3s74k1.apps.googleusercontent.com.json',
-        scopes=['openid', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
-        redirect_uri=REDIRECT_URI
-    )
-
-    # Get authorization code from URL parameters
-    auth_code = st.query_params.get("code")
-
-    if not auth_code:
-        # Generate authorization URL
-        auth_url, _ = flow.authorization_url(
-            access_type='offline',
-            include_granted_scopes='true'
-        )
-        st.markdown(f'[Login with Google]({auth_url})')
-    return None
-
     try:
-        # Exchange auth code for credentials
-        flow.fetch_token(code=auth_code)
-        credentials = flow.credentials
+        # Create flow instance
+        flow = Flow.from_client_secrets_file(
+            'client_secret_487298376198-140i5gfel69hkaue4jqn27kjgo3s74k1.apps.googleusercontent.com.json',
+            scopes=['openid', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
+            redirect_uri=REDIRECT_URI
+        )
 
-        # Get user info using credentials
-        service = build('oauth2', 'v2', credentials=credentials)
-        user_info = service.userinfo().get().execute()
-
-        # Check if user exists in Firestore
-        if not check_user_access(user_info['email']):
-            st.error("Access denied. Your email is not authorized to use this application. Contact the administrator.")
+        # Get authorization code from URL parameters
+        auth_code = st.query_params.get("code")
+        
+        if not auth_code:
+            # Generate authorization URL
+            auth_url, _ = flow.authorization_url(
+                access_type='offline',
+                include_granted_scopes='true',
+                prompt='consent'  # Force consent screen
+            )
+            st.markdown(f'[Login with Google]({auth_url})')
             return None
 
-        return user_info
+        # Exchange auth code for credentials
+        try:
+            flow.fetch_token(code=auth_code)
+            credentials = flow.credentials
+
+            # Get user info using credentials
+            service = build('oauth2', 'v2', credentials=credentials)
+            user_info = service.userinfo().get().execute()
+
+            # Check if user exists in allowed_emails.txt
+            with open('allowed_emails.txt', 'r') as f:
+                allowed_emails = [email.strip() for email in f.readlines()]
+            
+            if user_info['email'] not in allowed_emails:
+                st.error("Access denied. Your email is not authorized to use this application.")
+                return None
+
+            return user_info
+        except Exception as e:
+            st.error(f"Error during authentication: {str(e)}")
+            # Clear URL parameters to allow retrying
+            st.experimental_set_query_params()
+            return None
+
     except Exception as e:
-        st.error(f"Authentication failed: {str(e)}")
+        st.error(f"Error in auth flow: {str(e)}")
         return None
 
 def extract_score_from_analysis(analysis_text, max_points):
@@ -693,6 +704,16 @@ def extract_project_name(text):
 
 def main():
     try:
+        # Initialize session state for authentication
+        if 'authentication_state' not in st.session_state:
+            st.session_state.authentication_state = None
+        if 'user' not in st.session_state:
+            st.session_state.user = None
+        if 'messages' not in st.session_state:
+            st.session_state.messages = []
+        if 'whitepaper_text' not in st.session_state:
+            st.session_state.whitepaper_text = ""
+
         # Custom CSS for styling
         st.markdown("""
             <style>
@@ -985,15 +1006,7 @@ def main():
             </style>
         """, unsafe_allow_html=True)
 
-        # Hide Streamlit menu and footer
-        st.markdown("""
-            <style>
-            #MainMenu {visibility: hidden;}
-            footer {visibility: hidden;}
-            </style>
-        """, unsafe_allow_html=True)
-        
-        # Remove the title since we'll use custom headers
+        # Authentication flow
         if not st.session_state.user:
             st.markdown("""
                 <div class="main-header">
@@ -1001,10 +1014,26 @@ def main():
                     <p>Please sign in with Google to access the application</p>
                 </div>
             """, unsafe_allow_html=True)
-            user_info = auth_flow()
-            if user_info:
-                st.session_state.user = user_info
-                st.rerun()
+            
+            # Check for authentication code in URL
+            if "code" in st.query_params:
+                with st.spinner("Authenticating..."):
+                    user_info = auth_flow()
+                    if user_info:
+                        st.session_state.user = user_info
+                        st.session_state.authentication_state = "authenticated"
+                        st.rerun()
+                    else:
+                        st.session_state.authentication_state = "failed"
+            else:
+                # Show login button
+                auth_flow()
+                
+                # Show error message if authentication failed
+                if st.session_state.authentication_state == "failed":
+                    st.error("Authentication failed. Please try again.")
+                    # Reset authentication state
+                    st.session_state.authentication_state = None
             return
 
         # Only show the rest of the app if user is authenticated

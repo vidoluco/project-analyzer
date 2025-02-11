@@ -10,7 +10,11 @@ from googleapiclient.discovery import build
 import re
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
-import pdfkit
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
+from reportlab.lib.units import inch
 import tempfile
 from pathlib import Path
 import io
@@ -410,62 +414,75 @@ def scrape_gitbook(url):
     return content
 
 def create_pdf_from_content(content):
-    """Create PDF from scraped content."""
+    """Create PDF from scraped content using ReportLab."""
     try:
-        # Use BytesIO for temporary storage instead of files
-        html_content = """
-        <html>
-        <head>
-            <style>
-                body { font-family: Arial, sans-serif; line-height: 1.6; }
-                img { max-width: 100%; height: auto; margin: 10px 0; }
-                h1 { color: #333; border-bottom: 1px solid #ccc; padding-bottom: 10px; }
-                hr { margin: 20px 0; border: none; border-top: 1px solid #eee; }
-            </style>
-        </head>
-        <body>
-        """
+        # Create PDF buffer
+        pdf_buffer = io.BytesIO()
+        
+        # Create the PDF document
+        doc = SimpleDocTemplate(
+            pdf_buffer,
+            pagesize=A4,
+            rightMargin=72,
+            leftMargin=72,
+            topMargin=72,
+            bottomMargin=72
+        )
+        
+        # Get styles
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=24,
+            spaceAfter=30
+        )
+        body_style = ParagraphStyle(
+            'CustomBody',
+            parent=styles['Normal'],
+            fontSize=12,
+            spaceAfter=12
+        )
+        
+        # Create story (content)
+        story = []
         
         for page in content:
-            html_content += f"<h1>{page['title']}</h1>"
+            # Add title
+            title = page.get('title', 'Untitled')
+            story.append(Paragraph(title, title_style))
+            story.append(Spacer(1, 12))
+            
+            # Add images if any
             if 'images' in page and page['images']:
                 for img in page['images']:
-                    html_content += f'<img src="{img["src"]}" alt="{img["alt"]}" /><br>'
-            html_content += f"{page['content']}<hr>"
+                    try:
+                        # Download image
+                        img_response = requests.get(img['src'])
+                        if img_response.status_code == 200:
+                            img_data = io.BytesIO(img_response.content)
+                            img_width = 6 * inch  # 6 inches width
+                            story.append(Image(img_data, width=img_width, height=img_width * 0.75))
+                            story.append(Spacer(1, 12))
+                    except Exception as e:
+                        st.warning(f"Could not add image: {str(e)}")
+            
+            # Add content
+            content_paragraphs = page['content'].split('\n')
+            for paragraph in content_paragraphs:
+                if paragraph.strip():
+                    story.append(Paragraph(paragraph, body_style))
+                    story.append(Spacer(1, 12))
+            
+            # Add page break
+            story.append(Spacer(1, 20))
         
-        html_content += "</body></html>"
-        
-        # Write HTML to BytesIO
-        html_buffer = io.BytesIO(html_content.encode('utf-8'))
-        
-        # Convert HTML to PDF using pdfkit with better options
-        options = {
-            'page-size': 'A4',
-            'margin-top': '20mm',
-            'margin-right': '20mm',
-            'margin-bottom': '20mm',
-            'margin-left': '20mm',
-            'encoding': 'UTF-8',
-            'no-images': False,
-            'enable-local-file-access': True
-        }
-        
-        # Create temporary files with cleanup
-        with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as f_html:
-            f_html.write(html_content.encode('utf-8'))
-            temp_html = f_html.name
-            st.session_state.temp_files.append(temp_html)
-        
-        pdf_buffer = io.BytesIO()
-        pdfkit.from_file(temp_html, pdf_buffer, options=options)
-        
-        # Clean up temporary files
-        cleanup_temp_files()
-        
+        # Build PDF
+        doc.build(story)
+        pdf_buffer.seek(0)
         return pdf_buffer
     except Exception as e:
         st.error(f"Error creating PDF: {str(e)}")
-        cleanup_temp_files()
         return None
 
 def extract_text_from_pdf(pdf_file):

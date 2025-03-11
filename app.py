@@ -42,7 +42,14 @@ def cleanup_temp_files():
 # Set environment variables
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1' 
 PERPLEXITY_API_KEY = os.getenv('PERPLEXITY_API_KEY')
-REDIRECT_URI = "https://crypto-project-analyzer.streamlit.app/_oauth/google"
+
+# Determine if running locally or in production
+is_local = os.environ.get('STREAMLIT_ENV', '') != 'production'
+if is_local:
+    # For local development, use the root path with a query parameter
+    REDIRECT_URI = "http://localhost:8501/"
+else:
+    REDIRECT_URI = "https://crypto-project-analyzer.streamlit.app/_oauth/google"
 
 # Set Google Application Credentials
 os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = os.path.join(os.path.dirname(__file__), 'nova-gcp-infra-d3488d86e9fa.json')
@@ -494,6 +501,9 @@ def extract_text_from_pdf(pdf_file):
 
 def auth_flow():
     try:
+        # Determine if running locally or in production
+        is_local = os.environ.get('STREAMLIT_ENV', '') != 'production'
+        
         # Create flow instance
         flow = Flow.from_client_secrets_file(
             'client_secret_487298376198-140i5gfel69hkaue4jqn27kjgo3s74k1.apps.googleusercontent.com.json',
@@ -506,7 +516,7 @@ def auth_flow():
         
         if not auth_code:
             # Generate authorization URL
-            auth_url, _ = flow.authorization_url(
+            auth_url, state = flow.authorization_url(
                 access_type='offline',
                 include_granted_scopes='true',
                 prompt='consent'  # Force consent screen
@@ -530,12 +540,19 @@ def auth_flow():
             if user_info['email'] not in allowed_emails:
                 st.error("Access denied. Your email is not authorized to use this application.")
                 return None
-
+                
+            # Clear the URL parameters after successful authentication
+            if is_local:
+                # Use the new API to clear query parameters
+                st.query_params.clear()
+                
             return user_info
         except Exception as e:
             st.error(f"Error during authentication: {str(e)}")
             # Clear URL parameters to allow retrying
-            st.experimental_set_query_params()
+            if is_local:
+                # Use the new API to clear query parameters
+                st.query_params.clear()
             return None
 
     except Exception as e:
@@ -1022,9 +1039,20 @@ def main():
                     if user_info:
                         st.session_state.user = user_info
                         st.session_state.authentication_state = "authenticated"
+                        
+                        # Clear URL parameters after successful authentication
+                        is_local = os.environ.get('STREAMLIT_ENV', '') != 'production'
+                        if is_local:
+                            st.query_params.clear()
+                            
                         st.rerun()
                     else:
                         st.session_state.authentication_state = "failed"
+                        
+                        # Clear URL parameters after failed authentication
+                        is_local = os.environ.get('STREAMLIT_ENV', '') != 'production'
+                        if is_local:
+                            st.query_params.clear()
             else:
                 # Show login button
                 auth_flow()

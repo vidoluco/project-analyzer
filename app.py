@@ -46,10 +46,15 @@ PERPLEXITY_API_KEY = os.getenv('PERPLEXITY_API_KEY')
 # Determine if running locally or in production
 is_local = os.environ.get('STREAMLIT_ENV', '') != 'production'
 if is_local:
-    # For local development, use the root path with a query parameter
+    # For local development
     REDIRECT_URI = "http://localhost:8501/"
 else:
+    # For production deployment
     REDIRECT_URI = "https://crypto-project-analyzer.streamlit.app/_oauth/google"
+    
+# Set environment variables
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1' 
+PERPLEXITY_API_KEY = os.getenv('PERPLEXITY_API_KEY')
 
 # Set Google Application Credentials
 os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = os.path.join(os.path.dirname(__file__), 'nova-gcp-infra-d3488d86e9fa.json')

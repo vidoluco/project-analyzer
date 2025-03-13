@@ -25,6 +25,14 @@ import time
 # Load environment variables
 load_dotenv()
 
+# HARDCODED ENVIRONMENT SETTING
+# Cambia questo valore manualmente quando passi da locale a produzione
+# True = ambiente locale, False = ambiente di produzione (Streamlit Cloud)
+IS_LOCAL_ENVIRONMENT = False
+
+# Stampa debug all'avvio
+print(f"Running with hardcoded environment: {'LOCAL' if IS_LOCAL_ENVIRONMENT else 'PRODUCTION'}")
+
 # Initialize session state for file operations
 if 'temp_files' not in st.session_state:
     st.session_state.temp_files = []
@@ -43,13 +51,17 @@ def cleanup_temp_files():
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1' 
 PERPLEXITY_API_KEY = os.getenv('PERPLEXITY_API_KEY')
 
-# Determine if running locally or in production
-is_local = os.environ.get('STREAMLIT_ENV', '') != 'production'
-if is_local:
-    # For local development, use the root path with a query parameter
-    REDIRECT_URI = "http://localhost:8501/"
+# HARDCODED REDIRECT URIs
+LOCAL_REDIRECT_URI = "http://localhost:8501/"
+PRODUCTION_REDIRECT_URI = "https://crypto-project-analyzer.streamlit.app/"
+
+# Set the redirect URI based on hardcoded environment setting
+if IS_LOCAL_ENVIRONMENT:
+    # Ambiente locale
+    REDIRECT_URI = LOCAL_REDIRECT_URI
 else:
-    REDIRECT_URI = "https://crypto-project-analyzer.streamlit.app/_oauth/google"
+    # Ambiente di produzione
+    REDIRECT_URI = PRODUCTION_REDIRECT_URI
 
 # Set Google Application Credentials
 os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = os.path.join(os.path.dirname(__file__), 'nova-gcp-infra-d3488d86e9fa.json')
@@ -501,14 +513,17 @@ def extract_text_from_pdf(pdf_file):
 
 def auth_flow():
     try:
-        # Determine if running locally or in production
-        is_local = os.environ.get('STREAMLIT_ENV', '') != 'production'
+        # Use hardcoded environment setting
+        is_local = IS_LOCAL_ENVIRONMENT
+        
+        # Set the correct redirect URI based on hardcoded environment setting
+        redirect_uri = LOCAL_REDIRECT_URI if is_local else PRODUCTION_REDIRECT_URI
         
         # Create flow instance
         flow = Flow.from_client_secrets_file(
             'client_secret_487298376198-140i5gfel69hkaue4jqn27kjgo3s74k1.apps.googleusercontent.com.json',
             scopes=['openid', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
-            redirect_uri=REDIRECT_URI
+            redirect_uri=redirect_uri
         )
 
         # Get authorization code from URL parameters
@@ -542,8 +557,19 @@ def auth_flow():
                 return None
                 
             # Clear the URL parameters after successful authentication
-            if is_local:
-                # Use the new API to clear query parameters
+            if not is_local:
+                # In production, use JavaScript to remove the query params
+                st.markdown("""
+                <script>
+                // Remove query parameters and redirect to base URL
+                if (window.location.search) {
+                    var baseUrl = window.location.href.split('?')[0];
+                    window.history.replaceState({}, document.title, baseUrl);
+                }
+                </script>
+                """, unsafe_allow_html=True)
+            else:
+                # In local environment, use Streamlit's API
                 st.query_params.clear()
                 
             return user_info
@@ -551,7 +577,6 @@ def auth_flow():
             st.error(f"Error during authentication: {str(e)}")
             # Clear URL parameters to allow retrying
             if is_local:
-                # Use the new API to clear query parameters
                 st.query_params.clear()
             return None
 
@@ -720,7 +745,7 @@ def extract_project_name(text):
         return None
 
 def main():
-    try:
+    try:            
         # Initialize session state for authentication
         if 'authentication_state' not in st.session_state:
             st.session_state.authentication_state = None

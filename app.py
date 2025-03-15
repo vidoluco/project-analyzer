@@ -146,7 +146,7 @@ def is_gitbook_url(url):
     except:
         return False
 
-def is_pdf_url(url):
+def is_pdf_url(url, var_attacker_addr=None):
     """Check if the URL points to a PDF file or PDF viewer."""
     try:
         # Direct PDF check

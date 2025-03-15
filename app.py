@@ -4,9 +4,9 @@ from dotenv import load_dotenv
 import PyPDF2
 import requests
 import json
-from google_auth_oauthlib.flow import Flow
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
+# from google_auth_oauthlib.flow import Flow
+# from google.oauth2.credentials import Credentials
+# from googleapiclient.discovery import build
 import re
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
@@ -18,8 +18,8 @@ from reportlab.lib.units import inch
 import tempfile
 from pathlib import Path
 import io
-import firebase_admin
-from firebase_admin import credentials, firestore
+# import firebase_admin
+# from firebase_admin import credentials, firestore
 import time
 
 # Load environment variables
@@ -51,60 +51,6 @@ def cleanup_temp_files():
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1' 
 PERPLEXITY_API_KEY = os.getenv('PERPLEXITY_API_KEY')
 
-# Debug per verificare se la chiave API è caricata
-print(f"PERPLEXITY_API_KEY loaded: {'YES' if PERPLEXITY_API_KEY else 'NO'}")
-
-# Se la chiave API non è caricata, imposta una chiave di fallback
-if not PERPLEXITY_API_KEY:
-    # Imposta una chiave API di fallback
-    PERPLEXITY_API_KEY = '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'
-    print("Using fallback PERPLEXITY_API_KEY")
-    
-    # Avvisa l'utente che la chiave API non è configurata correttamente
-    st.warning("""
-    ⚠️ PERPLEXITY_API_KEY non trovata nelle variabili d'ambiente o nei secrets di Streamlit.
-    
-    Stiamo usando una chiave di fallback che potrebbe non funzionare. Per risolvere:
-    1. Assicurati di avere un file .env con PERPLEXITY_API_KEY='pplx-your-api-key'
-    2. Oppure configura la chiave nei secrets di Streamlit
-    
-    L'app funzionerà comunque con risposte di fallback.
-    """)
-
-# Funzione per verificare se la chiave API è valida
-def is_perplexity_api_key_valid():
-    """Verifica se la chiave API di Perplexity è valida."""
-    url = "https://api.perplexity.ai/chat/completions"
-    messages = [
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "Say hello"}
-    ]
-    payload = {
-        "model": "llama-3.1-sonar-small-128k-online",
-        "messages": messages,
-        "max_tokens": 10
-    }
-    headers = {
-        "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    try:
-        response = requests.post(url, json=payload, headers=headers)
-        response.raise_for_status()
-        return True
-    except Exception as e:
-        print(f"API key validation error: {str(e)}")
-        return False
-
-# Verifica se la chiave API è valida
-PERPLEXITY_API_VALID = is_perplexity_api_key_valid()
-if not PERPLEXITY_API_VALID:
-    st.warning("""
-    ⚠️ La chiave API di Perplexity non è valida o ha raggiunto il limite di utilizzo.
-    
-    L'app funzionerà comunque con risposte di fallback, ma le analisi non utilizzeranno l'AI di Perplexity.
-    """)
-
 # HARDCODED REDIRECT URIs
 LOCAL_REDIRECT_URI = "http://localhost:8501/"
 PRODUCTION_REDIRECT_URI = "https://crypto-project-analyzer.streamlit.app/"
@@ -118,48 +64,52 @@ else:
     REDIRECT_URI = PRODUCTION_REDIRECT_URI
 
 # Set Google Application Credentials
-os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = os.path.join(os.path.dirname(__file__), 'nova-gcp-infra-d3488d86e9fa.json')
+# os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = os.path.join(os.path.dirname(__file__), 'nova-gcp-infra-d3488d86e9fa.json')
 
 # Initialize Firebase Admin SDK
-cred = credentials.Certificate('nova-gcp-infra-d3488d86e9fa.json')
-try:
-    app = firebase_admin.initialize_app(cred, {
-        'projectId': 'nova-gcp-infra'
-    })
-except ValueError:
-    app = firebase_admin.get_app()
+# cred = credentials.Certificate('nova-gcp-infra-d3488d86e9fa.json')
+# try:
+#     app = firebase_admin.initialize_app(cred, {
+#         'projectId': 'nova-gcp-infra'
+#     })
+# except ValueError:
+#     app = firebase_admin.get_app()
 
 # Initialize Firestore client
-db = firestore.Client(project='nova-gcp-infra', database='cryptoanalysisappusersdb')
+# db = firestore.Client(project='nova-gcp-infra', database='cryptoanalysisappusersdb')
 
-def check_user_access(email):
-    """Check if user's email exists in the Firestore database."""
-    try:
-        # Debug information
-        st.write(f"Checking access for email: {email}")
-        
-        # Query the users collection for the email
-        users_ref = db.collection('Users')
-        user_query = users_ref.where('email', '==', email).limit(1).get()
-        
-        # Print the query results for debugging
-        results = list(user_query)
-        
-        has_access = len(results) > 0
-        if not has_access:
-            st.warning(f"User {email} not registered to the system.")
-        else:
-            st.success(f"Access granted for {email}")
-        return has_access
-    except Exception as e:
-        st.error(f"Error checking user access: {str(e)}")
-        st.error(f"Current working directory: {os.getcwd()}")
-        st.error(f"Service account path: {os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')}")
-        return False
+# def check_user_access(email):
+#     """Check if user's email exists in the Firestore database."""
+#     try:
+#         # Debug information
+#         st.write(f"Checking access for email: {email}")
+#         
+#         # Query the users collection for the email
+#         users_ref = db.collection('Users')
+#         user_query = users_ref.where('email', '==', email).limit(1).get()
+#         
+#         # Print the query results for debugging
+#         results = list(user_query)
+#         
+#         has_access = len(results) > 0
+#         if not has_access:
+#             st.warning(f"User {email} not registered to the system.")
+#         else:
+#             st.success(f"Access granted for {email}")
+#         return has_access
+#     except Exception as e:
+#         st.error(f"Error checking user access: {str(e)}")
+#         st.error(f"Current working directory: {os.getcwd()}")
+#         st.error(f"Service account path: {os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')}")
+#         return False
+
+if not PERPLEXITY_API_KEY:
+    st.error("Please set your PERPLEXITY_API_KEY in the .env file")
+    st.stop()
 
 # Initialize session state
 if 'user' not in st.session_state:
-    st.session_state.user = None
+    st.session_state.user = {"email": "temporary_user@example.com"}  # Utente temporaneo per accesso senza login
 
 if 'messages' not in st.session_state:
     st.session_state.messages = []
@@ -561,78 +511,79 @@ def extract_text_from_pdf(pdf_file):
         text += page.extract_text()
     return text
 
-def auth_flow():
-    try:
-        # Use hardcoded environment setting
-        is_local = IS_LOCAL_ENVIRONMENT
-        
-        # Set the correct redirect URI based on hardcoded environment setting
-        redirect_uri = LOCAL_REDIRECT_URI if is_local else PRODUCTION_REDIRECT_URI
-        
-        # Create flow instance
-        flow = Flow.from_client_secrets_file(
-            'client_secret_487298376198-140i5gfel69hkaue4jqn27kjgo3s74k1.apps.googleusercontent.com.json',
-            scopes=['openid', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
-            redirect_uri=redirect_uri
-        )
-
-        # Get authorization code from URL parameters
-        auth_code = st.query_params.get("code")
-        
-        if not auth_code:
-            # Generate authorization URL
-            auth_url, state = flow.authorization_url(
-                access_type='offline',
-                include_granted_scopes='true',
-                prompt='consent'  # Force consent screen
-            )
-            st.markdown(f'[Login with Google]({auth_url})')
-            return None
-
-        # Exchange auth code for credentials
-        try:
-            flow.fetch_token(code=auth_code)
-            credentials = flow.credentials
-
-            # Get user info using credentials
-            service = build('oauth2', 'v2', credentials=credentials)
-            user_info = service.userinfo().get().execute()
-
-            # Check if user exists in allowed_emails.txt
-            with open('allowed_emails.txt', 'r') as f:
-                allowed_emails = [email.strip() for email in f.readlines()]
-            
-            if user_info['email'] not in allowed_emails:
-                st.error("Access denied. Your email is not authorized to use this application.")
-                return None
-                
-            # Clear the URL parameters after successful authentication
-            if not is_local:
-                # In production, use JavaScript to remove the query params
-                st.markdown("""
-                <script>
-                // Remove query parameters and redirect to base URL
-                if (window.location.search) {
-                    var baseUrl = window.location.href.split('?')[0];
-                    window.history.replaceState({}, document.title, baseUrl);
-                }
-                </script>
-                """, unsafe_allow_html=True)
-            else:
-                # In local environment, use Streamlit's API
-                st.query_params.clear()
-                
-            return user_info
-        except Exception as e:
-            st.error(f"Error during authentication: {str(e)}")
-            # Clear URL parameters to allow retrying
-            if is_local:
-                st.query_params.clear()
-            return None
-
-    except Exception as e:
-        st.error(f"Error in auth flow: {str(e)}")
-        return None
+# Funzione di autenticazione commentata - sarà implementata in una release futura
+# def auth_flow():
+#     try:
+#         # Use hardcoded environment setting
+#         is_local = IS_LOCAL_ENVIRONMENT
+#         
+#         # Set the correct redirect URI based on hardcoded environment setting
+#         redirect_uri = LOCAL_REDIRECT_URI if is_local else PRODUCTION_REDIRECT_URI
+#         
+#         # Create flow instance
+#         flow = Flow.from_client_secrets_file(
+#             'client_secret_487298376198-140i5gfel69hkaue4jqn27kjgo3s74k1.apps.googleusercontent.com.json',
+#             scopes=['openid', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
+#             redirect_uri=redirect_uri
+#         )
+#
+#         # Get authorization code from URL parameters
+#         auth_code = st.query_params.get("code")
+#         
+#         if not auth_code:
+#             # Generate authorization URL
+#             auth_url, state = flow.authorization_url(
+#                 access_type='offline',
+#                 include_granted_scopes='true',
+#                 prompt='consent'  # Force consent screen
+#             )
+#             st.markdown(f'[Login with Google]({auth_url})')
+#             return None
+#
+#         # Exchange auth code for credentials
+#         try:
+#             flow.fetch_token(code=auth_code)
+#             credentials = flow.credentials
+#
+#             # Get user info using credentials
+#             service = build('oauth2', 'v2', credentials=credentials)
+#             user_info = service.userinfo().get().execute()
+#
+#             # Check if user exists in allowed_emails.txt
+#             with open('allowed_emails.txt', 'r') as f:
+#                 allowed_emails = [email.strip() for email in f.readlines()]
+#             
+#             if user_info['email'] not in allowed_emails:
+#                 st.error("Access denied. Your email is not authorized to use this application.")
+#                 return None
+#                 
+#             # Clear the URL parameters after successful authentication
+#             if not is_local:
+#                 # In production, use JavaScript to remove the query params
+#                 st.markdown("""
+#                 <script>
+#                 // Remove query parameters and redirect to base URL
+#                 if (window.location.search) {
+#                     var baseUrl = window.location.href.split('?')[0];
+#                     window.history.replaceState({}, document.title, baseUrl);
+#                 }
+#                 </script>
+#                 """, unsafe_allow_html=True)
+#             else:
+#                 # In local environment, use Streamlit's API
+#                 st.query_params.clear()
+#                 
+#             return user_info
+#         except Exception as e:
+#             st.error(f"Error during authentication: {str(e)}")
+#             # Clear URL parameters to allow retrying
+#             if is_local:
+#                 st.query_params.clear()
+#             return None
+#
+#     except Exception as e:
+#         st.error(f"Error in auth flow: {str(e)}")
+#         return None
 
 def extract_score_from_analysis(analysis_text, max_points):
     # Look for common score patterns in the text
@@ -685,30 +636,6 @@ def extract_score_from_analysis(analysis_text, max_points):
     return 0  # Default score if no pattern is found
 
 def analyze_with_perplexity(text, aspect, max_points):
-    # Se la chiave API non è valida, restituisci direttamente la risposta di fallback
-    if not PERPLEXITY_API_VALID:
-        fallback_score = max_points * 0.7  # Punteggio di fallback del 70%
-        fallback_analysis = f"""
-## {aspect.capitalize()} Analysis (Fallback Response)
-
-Based on the provided whitepaper, this project demonstrates reasonable {aspect} characteristics.
-
-### Key Points:
-- The project appears to have a structured approach to {aspect}
-- There are some innovative elements in the {aspect} design
-- The whitepaper provides adequate details about {aspect}
-
-### Areas for Improvement:
-- More detailed explanation of specific {aspect} mechanisms would be beneficial
-- Comparison with existing solutions could strengthen the {aspect} case
-- Long-term sustainability of the {aspect} model needs more elaboration
-
-Overall Score: 7/10
-
-Note: This is a fallback analysis due to API connection issues. For a more detailed analysis, please try again later.
-        """
-        return fallback_analysis, fallback_score
-        
     url = "https://api.perplexity.ai/chat/completions"
     messages = [
         {"role": "system", "content": f"You are an expert analyst evaluating blockchain and cryptocurrency projects. For the {aspect} aspect, provide a detailed analysis with clear scoring breakdowns. Always include an explicit overall score out of 10 at the end of your analysis, formatted as 'Overall Score: X/10'."},
@@ -723,7 +650,6 @@ Note: This is a fallback analysis due to API connection issues. For a more detai
         score = extract_score_from_analysis(analysis, max_points)
         if score == 0:
             messages.append({"role": "user", "content": "Please provide an explicit overall score out of 10 for this aspect."})
-            payload["messages"] = messages
             response = requests.post(url, json=payload, headers=headers)
             response.raise_for_status()
             additional_response = response.json()['choices'][0]['message']['content']
@@ -731,35 +657,9 @@ Note: This is a fallback analysis due to API connection issues. For a more detai
             score = extract_score_from_analysis(analysis, max_points)
         return analysis, score
     except Exception as e:
-        # Fornisci una risposta di fallback in caso di errore
-        print(f"Error in Perplexity API call: {str(e)}")
-        fallback_score = max_points * 0.7  # Punteggio di fallback del 70%
-        fallback_analysis = f"""
-## {aspect.capitalize()} Analysis (Fallback Response)
-
-Based on the provided whitepaper, this project demonstrates reasonable {aspect} characteristics.
-
-### Key Points:
-- The project appears to have a structured approach to {aspect}
-- There are some innovative elements in the {aspect} design
-- The whitepaper provides adequate details about {aspect}
-
-### Areas for Improvement:
-- More detailed explanation of specific {aspect} mechanisms would be beneficial
-- Comparison with existing solutions could strengthen the {aspect} case
-- Long-term sustainability of the {aspect} model needs more elaboration
-
-Overall Score: 7/10
-
-Note: This is a fallback analysis due to API connection issues. For a more detailed analysis, please try again later.
-        """
-        return fallback_analysis, fallback_score
+        return f"Error in analysis: {str(e)}", 0
 
 def chat_with_perplexity(user_message, context):
-    # Se la chiave API non è valida, restituisci direttamente la risposta di fallback
-    if not PERPLEXITY_API_VALID:
-        return f"I'm sorry, I couldn't process your question due to API connection issues. Please try again later when the API service is available."
-        
     url = "https://api.perplexity.ai/chat/completions"
     
     messages = [
@@ -783,25 +683,9 @@ def chat_with_perplexity(user_message, context):
         response.raise_for_status()
         return response.json()['choices'][0]['message']['content']
     except Exception as e:
-        print(f"Error in chat_with_perplexity: {str(e)}")
-        return f"I'm sorry, I couldn't process your question due to an API connection issue. Please try again later."
+        return f"Error: {str(e)}"
 
 def analyze_coinmarketcap_data(project_name):
-    # Se la chiave API non è valida, restituisci direttamente la risposta di fallback
-    if not PERPLEXITY_API_VALID:
-        return f"""
-## CoinMarketCap Analysis (Fallback Response)
-
-Due to API connection issues, we couldn't retrieve real-time data for {project_name}. 
-
-Here's a general overview:
-- Market data for cryptocurrencies can be highly volatile
-- For the most current information, please visit CoinMarketCap directly
-- Consider checking other sources like CoinGecko or Binance for market data
-
-Note: This is a fallback response. Please try again later for real-time market data.
-        """
-        
     url = "https://api.perplexity.ai/chat/completions"
     messages = [
         {"role": "system", "content": "You are a cryptocurrency market data analyst. Search and analyze CoinMarketCap data for the specified project."},
@@ -814,36 +698,9 @@ Note: This is a fallback response. Please try again later for real-time market d
         response.raise_for_status()
         return response.json()['choices'][0]['message']['content']
     except Exception as e:
-        print(f"Error in analyze_coinmarketcap_data: {str(e)}")
-        return f"""
-## CoinMarketCap Analysis (Fallback Response)
-
-Due to API connection issues, we couldn't retrieve real-time data for {project_name}. 
-
-Here's a general overview:
-- Market data for cryptocurrencies can be highly volatile
-- For the most current information, please visit CoinMarketCap directly
-- Consider checking other sources like CoinGecko or Binance for market data
-
-Note: This is a fallback response. Please try again later for real-time market data.
-        """
+        return f"Error in CoinMarketCap analysis: {str(e)}"
 
 def analyze_reddit_sentiment(project_name):
-    # Se la chiave API non è valida, restituisci direttamente la risposta di fallback
-    if not PERPLEXITY_API_VALID:
-        return f"""
-## Reddit Sentiment Analysis (Fallback Response)
-
-Due to API connection issues, we couldn't retrieve real-time Reddit sentiment data for {project_name}.
-
-Here's a general overview of what to look for:
-- Reddit communities like r/CryptoCurrency often discuss new projects
-- Community sentiment can be mixed, with both supporters and critics
-- Look for substantive discussions rather than just hype or FUD
-
-Note: This is a fallback response. Please try again later for real-time sentiment analysis.
-        """
-        
     url = "https://api.perplexity.ai/chat/completions"
     messages = [
         {"role": "system", "content": "You are a social media analyst specializing in cryptocurrency communities."},
@@ -856,36 +713,9 @@ Note: This is a fallback response. Please try again later for real-time sentimen
         response.raise_for_status()
         return response.json()['choices'][0]['message']['content']
     except Exception as e:
-        print(f"Error in analyze_reddit_sentiment: {str(e)}")
-        return f"""
-## Reddit Sentiment Analysis (Fallback Response)
-
-Due to API connection issues, we couldn't retrieve real-time Reddit sentiment data for {project_name}.
-
-Here's a general overview of what to look for:
-- Reddit communities like r/CryptoCurrency often discuss new projects
-- Community sentiment can be mixed, with both supporters and critics
-- Look for substantive discussions rather than just hype or FUD
-
-Note: This is a fallback response. Please try again later for real-time sentiment analysis.
-        """
+        return f"Error in Reddit analysis: {str(e)}"
 
 def analyze_market_sentiment(project_name):
-    # Se la chiave API non è valida, restituisci direttamente la risposta di fallback
-    if not PERPLEXITY_API_VALID:
-        return f"""
-## Market Sentiment Analysis (Fallback Response)
-
-Due to API connection issues, we couldn't retrieve real-time market sentiment data for {project_name}.
-
-Here's a general overview of market sentiment factors:
-- Market sentiment is influenced by project developments, partnerships, and overall market conditions
-- Social media presence across Twitter, Discord, and Telegram can indicate community engagement
-- Recent developments and roadmap progress are key indicators of project health
-
-Note: This is a fallback response. Please try again later for real-time market sentiment analysis.
-        """
-        
     url = "https://api.perplexity.ai/chat/completions"
     messages = [
         {"role": "system", "content": "You are a cryptocurrency market analyst."},
@@ -898,29 +728,9 @@ Note: This is a fallback response. Please try again later for real-time market s
         response.raise_for_status()
         return response.json()['choices'][0]['message']['content']
     except Exception as e:
-        print(f"Error in analyze_market_sentiment: {str(e)}")
-        return f"""
-## Market Sentiment Analysis (Fallback Response)
-
-Due to API connection issues, we couldn't retrieve real-time market sentiment data for {project_name}.
-
-Here's a general overview of market sentiment factors:
-- Market sentiment is influenced by project developments, partnerships, and overall market conditions
-- Social media presence across Twitter, Discord, and Telegram can indicate community engagement
-- Recent developments and roadmap progress are key indicators of project health
-
-Note: This is a fallback response. Please try again later for real-time market sentiment analysis.
-        """
+        return f"Error in market analysis: {str(e)}"
 
 def extract_project_name(text):
-    # Se la chiave API non è valida, estrai un nome di progetto generico dal testo
-    if not PERPLEXITY_API_VALID:
-        words = text.split()
-        potential_names = [word for word in words if word[0].isupper() and len(word) > 2 and word.isalnum()]
-        if potential_names:
-            return potential_names[0]
-        return "Crypto Project"
-        
     url = "https://api.perplexity.ai/chat/completions"
     messages = [
         {"role": "system", "content": "You are an expert at analyzing whitepapers. Extract the main project/token name from the whitepaper text. Return ONLY the name, nothing else."},
@@ -933,21 +743,15 @@ def extract_project_name(text):
         response.raise_for_status()
         return response.json()['choices'][0]['message']['content'].strip()
     except Exception as e:
-        print(f"Error in extract_project_name: {str(e)}")
-        # Estrai un nome di progetto generico dal testo
-        words = text.split()
-        potential_names = [word for word in words if word[0].isupper() and len(word) > 2 and word.isalnum()]
-        if potential_names:
-            return potential_names[0]
-        return "Crypto Project"
+        return None
 
 def main():
     try:            
         # Initialize session state for authentication
-        if 'authentication_state' not in st.session_state:
-            st.session_state.authentication_state = None
+        # if 'authentication_state' not in st.session_state:
+        #     st.session_state.authentication_state = None
         if 'user' not in st.session_state:
-            st.session_state.user = None
+            st.session_state.user = {"email": "temporary_user@example.com"}  # Utente temporaneo per accesso senza login
         if 'messages' not in st.session_state:
             st.session_state.messages = []
         if 'whitepaper_text' not in st.session_state:
@@ -1245,86 +1049,65 @@ def main():
             </style>
         """, unsafe_allow_html=True)
 
-        # Authentication flow
-        if not st.session_state.user:
-            # Imposta un utente predefinito per bypassare l'autenticazione
-            st.session_state.user = {
-                "email": "guest@example.com",
-                "name": "Guest User"
-            }
-            st.session_state.authentication_state = "authenticated"
-            
-            # Commento temporaneamente il flusso di autenticazione
-            """
-            st.markdown('''
-                <div class="main-header">
-                    <h1>Welcome to NOVA Crypto Analyzer</h1>
-                    <p>Please sign in with Google to access the application</p>
-                </div>
-            ''', unsafe_allow_html=True)
-            
-            # Check for authentication code in URL
-            if "code" in st.query_params:
-                with st.spinner("Authenticating..."):
-                    user_info = auth_flow()
-                    if user_info:
-                        st.session_state.user = user_info
-                        st.session_state.authentication_state = "authenticated"
-                        
-                        # Clear URL parameters after successful authentication
-                        is_local = os.environ.get('STREAMLIT_ENV', '') != 'production'
-                        if is_local:
-                            st.query_params.clear()
-                            
-                        st.rerun()
-                    else:
-                        st.session_state.authentication_state = "failed"
-                        
-                        # Clear URL parameters after failed authentication
-                        is_local = os.environ.get('STREAMLIT_ENV', '') != 'production'
-                        if is_local:
-                            st.query_params.clear()
-            else:
-                # Show login button
-                auth_flow()
-                
-                # Show error message if authentication failed
-                if st.session_state.authentication_state == "failed":
-                    st.error("Authentication failed. Please try again.")
-                    # Reset authentication state
-                    st.session_state.authentication_state = None
-            return
-            """
+        # Autenticazione rimossa temporaneamente - sarà implementata in una release futura
+        # if not st.session_state.user:
+        #     st.markdown("""
+        #         <div class="main-header">
+        #             <h1>Welcome to NOVA Crypto Analyzer</h1>
+        #             <p>Please sign in with Google to access the application</p>
+        #         </div>
+        #     """, unsafe_allow_html=True)
+        #     
+        #     # Check for authentication code in URL
+        #     if "code" in st.query_params:
+        #         with st.spinner("Authenticating..."):
+        #             user_info = auth_flow()
+        #             if user_info:
+        #                 st.session_state.user = user_info
+        #                 st.session_state.authentication_state = "authenticated"
+        #                 
+        #                 # Clear URL parameters after successful authentication
+        #                 is_local = os.environ.get('STREAMLIT_ENV', '') != 'production'
+        #                 if is_local:
+        #                     st.query_params.clear()
+        #                     
+        #                 st.rerun()
+        #             else:
+        #                 st.session_state.authentication_state = "failed"
+        #                 
+        #                 # Clear URL parameters after failed authentication
+        #                 is_local = os.environ.get('STREAMLIT_ENV', '') != 'production'
+        #                 if is_local:
+        #                     st.query_params.clear()
+        #     else:
+        #         # Show login button
+        #         auth_flow()
+        #         
+        #         # Show error message if authentication failed
+        #         if st.session_state.authentication_state == "failed":
+        #             st.error("Authentication failed. Please try again.")
+        #             # Reset authentication state
+        #             st.session_state.authentication_state = None
+        #     return
 
-        # Only show the rest of the app if user is authenticated
+        # Mostra l'app senza richiedere autenticazione
         with st.sidebar:
-            try:
-                # Prova a caricare il logo, se non esiste usa un placeholder
-                st.image("assets/Logo Asteroid Gray.png", use_container_width=True)
-            except Exception as e:
-                # Se c'è un errore, usa un placeholder di testo
-                st.markdown("""
-                    <div style='background: #666; color: white; padding: 1rem; text-align: center; border-radius: 10px; margin-bottom: 1rem;'>
-                        <h2 style='margin: 0;'>Crypto Analyzer</h2>
-                    </div>
-                """, unsafe_allow_html=True)
-            
+            st.image("assets/Logo Asteroid Gray.jpeg", use_container_width=True)
             st.markdown("""
                 <div style='margin-bottom: 2rem;'>
-                    <h2 style='color: #E0E0E0; font-size: 1.5rem; margin-bottom: 1rem;'>Navigation</h2>
+                    <h2 style='color: white; font-size: 1.5rem; margin-bottom: 1rem;'>Navigation</h2>
                 </div>
             """, unsafe_allow_html=True)
             page = st.radio("", ["Whitepaper Analyzer", "Whitepaper Scraper"])
             
+            # Nota informativa sull'accesso temporaneo senza login
             st.markdown(f"""
                 <div style='padding: 1rem; background: rgba(255,255,255,0.1); border-radius: 10px; margin-top: 2rem;'>
-                    <p style='color: #B0B0B0; margin-bottom: 0.5rem;'>Logged in as:</p>
-                    <p style='color: #E0E0E0; font-weight: 500;'>{st.session_state.user['email']}</p>
+                    <p style='color: #E0E0E0; margin-bottom: 0.5rem;'>Accesso temporaneo:</p>
+                    <p style='color: white; font-weight: 500;'>Login disabilitato temporaneamente</p>
+                    <p style='color: #E0E0E0; font-size: 0.8rem;'>Il sistema di autenticazione sarà implementato in una release futura</p>
                 </div>
             """, unsafe_allow_html=True)
-            if st.button("Logout"):
-                st.session_state.user = None
-                st.experimental_rerun()
 
         if page == "Whitepaper Analyzer":
             st.markdown("""

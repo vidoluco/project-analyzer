@@ -1092,7 +1092,12 @@ def main():
 
         # Mostra l'app senza richiedere autenticazione
         with st.sidebar:
-            st.image("assets/Logo Asteroid Gray.jpeg", use_container_width=True)
+            try:
+                # Try with use_container_width parameter (newer Streamlit versions)
+                st.image("assets/Logo Asteroid Gray.jpeg", use_container_width=True)
+            except TypeError:
+                # Fallback for older Streamlit versions that don't support use_container_width
+                st.image("assets/Logo Asteroid Gray.jpeg", width=None)
             st.markdown("""
                 <div style='margin-bottom: 2rem;'>
                     <h2 style='color: white; font-size: 1.5rem; margin-bottom: 1rem;'>Navigation</h2>

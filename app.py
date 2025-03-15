@@ -4,9 +4,9 @@ from dotenv import load_dotenv
 import PyPDF2
 import requests
 import json
-from google_auth_oauthlib.flow import Flow
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
+# from google_auth_oauthlib.flow import Flow
+# from google.oauth2.credentials import Credentials
+# from googleapiclient.discovery import build
 import re
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
@@ -18,8 +18,8 @@ from reportlab.lib.units import inch
 import tempfile
 from pathlib import Path
 import io
-import firebase_admin
-from firebase_admin import credentials, firestore
+# import firebase_admin
+# from firebase_admin import credentials, firestore
 import time
 
 # Load environment variables
@@ -64,44 +64,44 @@ else:
     REDIRECT_URI = PRODUCTION_REDIRECT_URI
 
 # Set Google Application Credentials
-os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = os.path.join(os.path.dirname(__file__), 'nova-gcp-infra-d3488d86e9fa.json')
+# os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = os.path.join(os.path.dirname(__file__), 'nova-gcp-infra-d3488d86e9fa.json')
 
 # Initialize Firebase Admin SDK
-cred = credentials.Certificate('nova-gcp-infra-d3488d86e9fa.json')
-try:
-    app = firebase_admin.initialize_app(cred, {
-        'projectId': 'nova-gcp-infra'
-    })
-except ValueError:
-    app = firebase_admin.get_app()
+# cred = credentials.Certificate('nova-gcp-infra-d3488d86e9fa.json')
+# try:
+#     app = firebase_admin.initialize_app(cred, {
+#         'projectId': 'nova-gcp-infra'
+#     })
+# except ValueError:
+#     app = firebase_admin.get_app()
 
 # Initialize Firestore client
-db = firestore.Client(project='nova-gcp-infra', database='cryptoanalysisappusersdb')
+# db = firestore.Client(project='nova-gcp-infra', database='cryptoanalysisappusersdb')
 
-def check_user_access(email):
-    """Check if user's email exists in the Firestore database."""
-    try:
-        # Debug information
-        st.write(f"Checking access for email: {email}")
-        
-        # Query the users collection for the email
-        users_ref = db.collection('Users')
-        user_query = users_ref.where('email', '==', email).limit(1).get()
-        
-        # Print the query results for debugging
-        results = list(user_query)
-        
-        has_access = len(results) > 0
-        if not has_access:
-            st.warning(f"User {email} not registered to the system.")
-        else:
-            st.success(f"Access granted for {email}")
-        return has_access
-    except Exception as e:
-        st.error(f"Error checking user access: {str(e)}")
-        st.error(f"Current working directory: {os.getcwd()}")
-        st.error(f"Service account path: {os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')}")
-        return False
+# def check_user_access(email):
+#     """Check if user's email exists in the Firestore database."""
+#     try:
+#         # Debug information
+#         st.write(f"Checking access for email: {email}")
+#         
+#         # Query the users collection for the email
+#         users_ref = db.collection('Users')
+#         user_query = users_ref.where('email', '==', email).limit(1).get()
+#         
+#         # Print the query results for debugging
+#         results = list(user_query)
+#         
+#         has_access = len(results) > 0
+#         if not has_access:
+#             st.warning(f"User {email} not registered to the system.")
+#         else:
+#             st.success(f"Access granted for {email}")
+#         return has_access
+#     except Exception as e:
+#         st.error(f"Error checking user access: {str(e)}")
+#         st.error(f"Current working directory: {os.getcwd()}")
+#         st.error(f"Service account path: {os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')}")
+#         return False
 
 if not PERPLEXITY_API_KEY:
     st.error("Please set your PERPLEXITY_API_KEY in the .env file")
@@ -109,7 +109,7 @@ if not PERPLEXITY_API_KEY:
 
 # Initialize session state
 if 'user' not in st.session_state:
-    st.session_state.user = None
+    st.session_state.user = {"email": "temporary_user@example.com"}  # Utente temporaneo per accesso senza login
 
 if 'messages' not in st.session_state:
     st.session_state.messages = []
@@ -511,78 +511,79 @@ def extract_text_from_pdf(pdf_file):
         text += page.extract_text()
     return text
 
-def auth_flow():
-    try:
-        # Use hardcoded environment setting
-        is_local = IS_LOCAL_ENVIRONMENT
-        
-        # Set the correct redirect URI based on hardcoded environment setting
-        redirect_uri = LOCAL_REDIRECT_URI if is_local else PRODUCTION_REDIRECT_URI
-        
-        # Create flow instance
-        flow = Flow.from_client_secrets_file(
-            'client_secret_487298376198-140i5gfel69hkaue4jqn27kjgo3s74k1.apps.googleusercontent.com.json',
-            scopes=['openid', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
-            redirect_uri=redirect_uri
-        )
-
-        # Get authorization code from URL parameters
-        auth_code = st.query_params.get("code")
-        
-        if not auth_code:
-            # Generate authorization URL
-            auth_url, state = flow.authorization_url(
-                access_type='offline',
-                include_granted_scopes='true',
-                prompt='consent'  # Force consent screen
-            )
-            st.markdown(f'[Login with Google]({auth_url})')
-            return None
-
-        # Exchange auth code for credentials
-        try:
-            flow.fetch_token(code=auth_code)
-            credentials = flow.credentials
-
-            # Get user info using credentials
-            service = build('oauth2', 'v2', credentials=credentials)
-            user_info = service.userinfo().get().execute()
-
-            # Check if user exists in allowed_emails.txt
-            with open('allowed_emails.txt', 'r') as f:
-                allowed_emails = [email.strip() for email in f.readlines()]
-            
-            if user_info['email'] not in allowed_emails:
-                st.error("Access denied. Your email is not authorized to use this application.")
-                return None
-                
-            # Clear the URL parameters after successful authentication
-            if not is_local:
-                # In production, use JavaScript to remove the query params
-                st.markdown("""
-                <script>
-                // Remove query parameters and redirect to base URL
-                if (window.location.search) {
-                    var baseUrl = window.location.href.split('?')[0];
-                    window.history.replaceState({}, document.title, baseUrl);
-                }
-                </script>
-                """, unsafe_allow_html=True)
-            else:
-                # In local environment, use Streamlit's API
-                st.query_params.clear()
-                
-            return user_info
-        except Exception as e:
-            st.error(f"Error during authentication: {str(e)}")
-            # Clear URL parameters to allow retrying
-            if is_local:
-                st.query_params.clear()
-            return None
-
-    except Exception as e:
-        st.error(f"Error in auth flow: {str(e)}")
-        return None
+# Funzione di autenticazione commentata - sarà implementata in una release futura
+# def auth_flow():
+#     try:
+#         # Use hardcoded environment setting
+#         is_local = IS_LOCAL_ENVIRONMENT
+#         
+#         # Set the correct redirect URI based on hardcoded environment setting
+#         redirect_uri = LOCAL_REDIRECT_URI if is_local else PRODUCTION_REDIRECT_URI
+#         
+#         # Create flow instance
+#         flow = Flow.from_client_secrets_file(
+#             'client_secret_487298376198-140i5gfel69hkaue4jqn27kjgo3s74k1.apps.googleusercontent.com.json',
+#             scopes=['openid', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
+#             redirect_uri=redirect_uri
+#         )
+#
+#         # Get authorization code from URL parameters
+#         auth_code = st.query_params.get("code")
+#         
+#         if not auth_code:
+#             # Generate authorization URL
+#             auth_url, state = flow.authorization_url(
+#                 access_type='offline',
+#                 include_granted_scopes='true',
+#                 prompt='consent'  # Force consent screen
+#             )
+#             st.markdown(f'[Login with Google]({auth_url})')
+#             return None
+#
+#         # Exchange auth code for credentials
+#         try:
+#             flow.fetch_token(code=auth_code)
+#             credentials = flow.credentials
+#
+#             # Get user info using credentials
+#             service = build('oauth2', 'v2', credentials=credentials)
+#             user_info = service.userinfo().get().execute()
+#
+#             # Check if user exists in allowed_emails.txt
+#             with open('allowed_emails.txt', 'r') as f:
+#                 allowed_emails = [email.strip() for email in f.readlines()]
+#             
+#             if user_info['email'] not in allowed_emails:
+#                 st.error("Access denied. Your email is not authorized to use this application.")
+#                 return None
+#                 
+#             # Clear the URL parameters after successful authentication
+#             if not is_local:
+#                 # In production, use JavaScript to remove the query params
+#                 st.markdown("""
+#                 <script>
+#                 // Remove query parameters and redirect to base URL
+#                 if (window.location.search) {
+#                     var baseUrl = window.location.href.split('?')[0];
+#                     window.history.replaceState({}, document.title, baseUrl);
+#                 }
+#                 </script>
+#                 """, unsafe_allow_html=True)
+#             else:
+#                 # In local environment, use Streamlit's API
+#                 st.query_params.clear()
+#                 
+#             return user_info
+#         except Exception as e:
+#             st.error(f"Error during authentication: {str(e)}")
+#             # Clear URL parameters to allow retrying
+#             if is_local:
+#                 st.query_params.clear()
+#             return None
+#
+#     except Exception as e:
+#         st.error(f"Error in auth flow: {str(e)}")
+#         return None
 
 def extract_score_from_analysis(analysis_text, max_points):
     # Look for common score patterns in the text
@@ -747,10 +748,10 @@ def extract_project_name(text):
 def main():
     try:            
         # Initialize session state for authentication
-        if 'authentication_state' not in st.session_state:
-            st.session_state.authentication_state = None
+        # if 'authentication_state' not in st.session_state:
+        #     st.session_state.authentication_state = None
         if 'user' not in st.session_state:
-            st.session_state.user = None
+            st.session_state.user = {"email": "temporary_user@example.com"}  # Utente temporaneo per accesso senza login
         if 'messages' not in st.session_state:
             st.session_state.messages = []
         if 'whitepaper_text' not in st.session_state:
@@ -1048,50 +1049,50 @@ def main():
             </style>
         """, unsafe_allow_html=True)
 
-        # Authentication flow
-        if not st.session_state.user:
-            st.markdown("""
-                <div class="main-header">
-                    <h1>Welcome to NOVA Crypto Analyzer</h1>
-                    <p>Please sign in with Google to access the application</p>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            # Check for authentication code in URL
-            if "code" in st.query_params:
-                with st.spinner("Authenticating..."):
-                    user_info = auth_flow()
-                    if user_info:
-                        st.session_state.user = user_info
-                        st.session_state.authentication_state = "authenticated"
-                        
-                        # Clear URL parameters after successful authentication
-                        is_local = os.environ.get('STREAMLIT_ENV', '') != 'production'
-                        if is_local:
-                            st.query_params.clear()
-                            
-                        st.rerun()
-                    else:
-                        st.session_state.authentication_state = "failed"
-                        
-                        # Clear URL parameters after failed authentication
-                        is_local = os.environ.get('STREAMLIT_ENV', '') != 'production'
-                        if is_local:
-                            st.query_params.clear()
-            else:
-                # Show login button
-                auth_flow()
-                
-                # Show error message if authentication failed
-                if st.session_state.authentication_state == "failed":
-                    st.error("Authentication failed. Please try again.")
-                    # Reset authentication state
-                    st.session_state.authentication_state = None
-            return
+        # Autenticazione rimossa temporaneamente - sarà implementata in una release futura
+        # if not st.session_state.user:
+        #     st.markdown("""
+        #         <div class="main-header">
+        #             <h1>Welcome to NOVA Crypto Analyzer</h1>
+        #             <p>Please sign in with Google to access the application</p>
+        #         </div>
+        #     """, unsafe_allow_html=True)
+        #     
+        #     # Check for authentication code in URL
+        #     if "code" in st.query_params:
+        #         with st.spinner("Authenticating..."):
+        #             user_info = auth_flow()
+        #             if user_info:
+        #                 st.session_state.user = user_info
+        #                 st.session_state.authentication_state = "authenticated"
+        #                 
+        #                 # Clear URL parameters after successful authentication
+        #                 is_local = os.environ.get('STREAMLIT_ENV', '') != 'production'
+        #                 if is_local:
+        #                     st.query_params.clear()
+        #                     
+        #                 st.rerun()
+        #             else:
+        #                 st.session_state.authentication_state = "failed"
+        #                 
+        #                 # Clear URL parameters after failed authentication
+        #                 is_local = os.environ.get('STREAMLIT_ENV', '') != 'production'
+        #                 if is_local:
+        #                     st.query_params.clear()
+        #     else:
+        #         # Show login button
+        #         auth_flow()
+        #         
+        #         # Show error message if authentication failed
+        #         if st.session_state.authentication_state == "failed":
+        #             st.error("Authentication failed. Please try again.")
+        #             # Reset authentication state
+        #             st.session_state.authentication_state = None
+        #     return
 
-        # Only show the rest of the app if user is authenticated
+        # Mostra l'app senza richiedere autenticazione
         with st.sidebar:
-            st.image("https://placehold.co/200x80?text=NOVA+Logo", use_column_width=True)
+            st.image("assets/Logo Asteroid Gray.jpeg", use_container_width=True)
             st.markdown("""
                 <div style='margin-bottom: 2rem;'>
                     <h2 style='color: white; font-size: 1.5rem; margin-bottom: 1rem;'>Navigation</h2>
@@ -1099,15 +1100,14 @@ def main():
             """, unsafe_allow_html=True)
             page = st.radio("", ["Whitepaper Analyzer", "Whitepaper Scraper"])
             
+            # Nota informativa sull'accesso temporaneo senza login
             st.markdown(f"""
                 <div style='padding: 1rem; background: rgba(255,255,255,0.1); border-radius: 10px; margin-top: 2rem;'>
-                    <p style='color: #E0E0E0; margin-bottom: 0.5rem;'>Logged in as:</p>
-                    <p style='color: white; font-weight: 500;'>{st.session_state.user['email']}</p>
+                    <p style='color: #E0E0E0; margin-bottom: 0.5rem;'>Accesso temporaneo:</p>
+                    <p style='color: white; font-weight: 500;'>Login disabilitato temporaneamente</p>
+                    <p style='color: #E0E0E0; font-size: 0.8rem;'>Il sistema di autenticazione sarà implementato in una release futura</p>
                 </div>
             """, unsafe_allow_html=True)
-            if st.button("Logout"):
-                st.session_state.user = None
-                st.experimental_rerun()
 
         if page == "Whitepaper Analyzer":
             st.markdown("""

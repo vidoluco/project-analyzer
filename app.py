@@ -13,7 +13,7 @@ from urllib.parse import urljoin, urlparse
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, PageBreak
 from reportlab.lib.units import inch
 import tempfile
 from pathlib import Path
@@ -21,6 +21,10 @@ import io
 # import firebase_admin
 # from firebase_admin import credentials, firestore
 import time
+import datetime
+from google.cloud import storage
+import uuid
+import base64
 
 # Load environment variables
 load_dotenv()
@@ -116,6 +120,196 @@ if 'messages' not in st.session_state:
 
 if 'whitepaper_text' not in st.session_state:
     st.session_state.whitepaper_text = ""
+
+# Initialize session state for usage limits and stored analyses
+if 'analysis_count' not in st.session_state:
+    st.session_state.analysis_count = 0
+
+if 'scrape_count' not in st.session_state:
+    st.session_state.scrape_count = 0
+
+if 'stored_analyses' not in st.session_state:
+    st.session_state.stored_analyses = []
+
+if 'stored_scrapes' not in st.session_state:
+    st.session_state.stored_scrapes = []
+
+# Constants for usage limits
+MAX_ANALYSES = 7
+MAX_SCRAPES = 15
+
+# Function to reset usage counts (e.g., for testing)
+def reset_usage_counts():
+    st.session_state.analysis_count = 0
+    st.session_state.scrape_count = 0
+
+# Function to convert PDF to base64 for browser storage
+def get_pdf_as_base64(pdf_bytes):
+    """Convert PDF bytes to base64 string for browser storage"""
+    base64_pdf = base64.b64encode(pdf_bytes.read()).decode('utf-8')
+    return base64_pdf
+
+# Function to download content as PDF and get base64
+def get_base64_pdf(content):
+    """Create PDF and return as base64 string"""
+    try:
+        pdf_buffer = io.BytesIO()
+        pdf = SimpleDocTemplate(
+            pdf_buffer,
+            pagesize=A4,
+            rightMargin=72,
+            leftMargin=72,
+            topMargin=72,
+            bottomMargin=72
+        )
+        
+        styles = getSampleStyleSheet()
+        story = []
+        
+        for page in content:
+            title = page.get('title', 'Untitled')
+            story.append(Paragraph(title, styles['Heading1']))
+            story.append(Spacer(1, 12))
+            
+            content_paragraphs = page['content'].split('\n')
+            for paragraph in content_paragraphs:
+                if paragraph.strip():
+                    story.append(Paragraph(paragraph, styles['Normal']))
+                    story.append(Spacer(1, 12))
+            
+            story.append(PageBreak())
+        
+        pdf.build(story)
+        pdf_buffer.seek(0)
+        
+        # Convert to base64
+        base64_pdf = base64.b64encode(pdf_buffer.getvalue()).decode('utf-8')
+        return base64_pdf
+    except Exception as e:
+        st.error(f"Error creating PDF: {str(e)}")
+        return None
+
+# Function to save analysis to browser's local storage via Streamlit
+def save_analysis_locally(project_name, analysis_data):
+    """Save analysis data to browser's localStorage using Streamlit"""
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Create analysis record
+    analysis_record = {
+        "project_name": project_name,
+        "timestamp": timestamp,
+        "data": analysis_data
+    }
+    
+    # Add to session state
+    st.session_state.stored_analyses.append(analysis_record)
+    
+    # Limit stored analyses to MAX_ANALYSES
+    if len(st.session_state.stored_analyses) > MAX_ANALYSES:
+        st.session_state.stored_analyses.pop(0)  # Remove oldest
+    
+    # Use JavaScript to store in browser's localStorage
+    analysis_json = json.dumps(analysis_record)
+    js_code = f"""
+    <script>
+        const analysisData = {analysis_json};
+        const storedAnalyses = JSON.parse(localStorage.getItem('cryptoAnalyses') || '[]');
+        storedAnalyses.push(analysisData);
+        
+        // Limit to {MAX_ANALYSES} analyses
+        while (storedAnalyses.length > {MAX_ANALYSES}) {{
+            storedAnalyses.shift();  // Remove oldest
+        }}
+        
+        localStorage.setItem('cryptoAnalyses', JSON.stringify(storedAnalyses));
+    </script>
+    """
+    st.components.v1.html(js_code, height=0)
+    
+    return True
+
+# Function to save scrape to browser's local storage
+def save_scrape_locally(url, content_base64):
+    """Save scraped content to browser's localStorage"""
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Create scrape record
+    scrape_record = {
+        "url": url,
+        "timestamp": timestamp,
+        "content_base64": content_base64
+    }
+    
+    # Add to session state
+    st.session_state.stored_scrapes.append(scrape_record)
+    
+    # Limit stored scrapes to MAX_SCRAPES
+    if len(st.session_state.stored_scrapes) > MAX_SCRAPES:
+        st.session_state.stored_scrapes.pop(0)  # Remove oldest
+    
+    # Use JavaScript to store in browser's localStorage
+    # Note: Only storing metadata and URL in localStorage due to size constraints
+    scrape_metadata = {
+        "url": url,
+        "timestamp": timestamp
+    }
+    js_code = f"""
+    <script>
+        const scrapeData = {json.dumps(scrape_metadata)};
+        const storedScrapes = JSON.parse(localStorage.getItem('cryptoScrapes') || '[]');
+        storedScrapes.push(scrapeData);
+        
+        // Limit to {MAX_SCRAPES} scrapes
+        while (storedScrapes.length > {MAX_SCRAPES}) {{
+            storedScrapes.shift();  // Remove oldest
+        }}
+        
+        localStorage.setItem('cryptoScrapes', JSON.stringify(storedScrapes));
+    </script>
+    """
+    st.components.v1.html(js_code, height=0)
+    
+    return True
+
+# Function to load stored analyses from browser's localStorage
+def load_stored_analyses():
+    """Load analyses from browser's localStorage"""
+    # Use JavaScript to retrieve data and set it to element that we can read
+    js_code = """
+    <script>
+        const storedAnalyses = JSON.parse(localStorage.getItem('cryptoAnalyses') || '[]');
+        document.getElementById('analyses-data').textContent = JSON.stringify(storedAnalyses);
+    </script>
+    <div id="analyses-data" style="display:none;"></div>
+    """
+    
+    # Create a container for JavaScript to write to
+    html_container = st.empty()
+    html_container.components.v1.html(js_code, height=0)
+    
+    # In a real implementation, we would read from the element
+    # For now, use session state (would normally be populated from the element)
+    return st.session_state.stored_analyses
+
+# Function to load stored scrapes from browser's localStorage
+def load_stored_scrapes():
+    """Load scrapes from browser's localStorage"""
+    # Use JavaScript to retrieve data
+    js_code = """
+    <script>
+        const storedScrapes = JSON.parse(localStorage.getItem('cryptoScrapes') || '[]');
+        document.getElementById('scrapes-data').textContent = JSON.stringify(storedScrapes);
+    </script>
+    <div id="scrapes-data" style="display:none;"></div>
+    """
+    
+    # Create a container for JavaScript to write to
+    html_container = st.empty()
+    html_container.components.v1.html(js_code, height=0)
+    
+    # In a real implementation, we would read from the element
+    # For now, use session state (would normally be populated from the element)
+    return st.session_state.stored_scrapes
 
 def is_gitbook_url(url):
     """Check if the URL is a GitBook documentation."""
@@ -745,6 +939,168 @@ def extract_project_name(text):
     except Exception as e:
         return None
 
+# Function to generate full analysis PDF
+def generate_analysis_pdf(project_name, whitepaper_text, tokenomics_analysis, tokenomics_score, 
+                          tech_analysis, tech_score, market_analysis, market_score, 
+                          team_analysis, team_score, total_score, 
+                          coinmarketcap_data, reddit_sentiment, market_sentiment):
+    """Create a comprehensive PDF report of the analysis"""
+    try:
+        # Create PDF buffer
+        pdf_buffer = io.BytesIO()
+        
+        # Create the PDF document
+        doc = SimpleDocTemplate(
+            pdf_buffer,
+            pagesize=A4,
+            rightMargin=72,
+            leftMargin=72,
+            topMargin=72,
+            bottomMargin=72
+        )
+        
+        # Get styles
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            'Title',
+            parent=styles['Heading1'],
+            fontSize=24,
+            spaceAfter=30,
+            alignment=1  # Center alignment
+        )
+        
+        heading_style = ParagraphStyle(
+            'Heading',
+            parent=styles['Heading2'],
+            fontSize=18,
+            spaceAfter=12
+        )
+        
+        subheading_style = ParagraphStyle(
+            'Subheading',
+            parent=styles['Heading3'],
+            fontSize=14,
+            spaceAfter=10
+        )
+        
+        body_style = ParagraphStyle(
+            'Body',
+            parent=styles['Normal'],
+            fontSize=10,
+            spaceAfter=8
+        )
+        
+        score_style = ParagraphStyle(
+            'Score',
+            parent=styles['Heading2'],
+            fontSize=16,
+            textColor=colors.blue,
+            spaceAfter=12
+        )
+        
+        # Create story (content)
+        story = []
+        
+        # Add title and date
+        current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        story.append(Paragraph(f"Crypto Analysis Report: {project_name}", title_style))
+        story.append(Paragraph(f"Generated on: {current_date}", body_style))
+        story.append(Spacer(1, 30))
+        
+        # Add total score
+        story.append(Paragraph(f"Total Project Score: {total_score}/100", score_style))
+        story.append(Spacer(1, 20))
+        
+        # Add tokenomics section
+        story.append(Paragraph("Tokenomics Analysis", heading_style))
+        story.append(Paragraph(f"Score: {tokenomics_score}/30", score_style))
+        story.append(Paragraph(tokenomics_analysis, body_style))
+        story.append(PageBreak())
+        
+        # Add technology section
+        story.append(Paragraph("Technology Analysis", heading_style))
+        story.append(Paragraph(f"Score: {tech_score}/30", score_style))
+        story.append(Paragraph(tech_analysis, body_style))
+        story.append(PageBreak())
+        
+        # Add market section
+        story.append(Paragraph("Market Potential Analysis", heading_style))
+        story.append(Paragraph(f"Score: {market_score}/20", score_style))
+        story.append(Paragraph(market_analysis, body_style))
+        story.append(PageBreak())
+        
+        # Add team section
+        story.append(Paragraph("Team Analysis", heading_style))
+        story.append(Paragraph(f"Score: {team_score}/20", score_style))
+        story.append(Paragraph(team_analysis, body_style))
+        story.append(PageBreak())
+        
+        # Add additional market data
+        story.append(Paragraph("Additional Market Data", heading_style))
+        
+        story.append(Paragraph("CoinMarketCap Analysis", subheading_style))
+        story.append(Paragraph(coinmarketcap_data, body_style))
+        story.append(Spacer(1, 15))
+        
+        story.append(Paragraph("Reddit Sentiment Analysis", subheading_style))
+        story.append(Paragraph(reddit_sentiment, body_style))
+        story.append(Spacer(1, 15))
+        
+        story.append(Paragraph("Market Sentiment Analysis", subheading_style))
+        story.append(Paragraph(market_sentiment, body_style))
+        
+        # Build PDF
+        doc.build(story)
+        pdf_buffer.seek(0)
+        return pdf_buffer
+    except Exception as e:
+        st.error(f"Error creating analysis PDF: {str(e)}")
+        return None
+
+# Function to upload to GCS bucket
+def upload_to_gcs(pdf_content, project_name):
+    """Upload the analysis PDF to Google Cloud Storage bucket"""
+    try:
+        # Initialize GCS client
+        storage_client = storage.Client()
+        
+        # Get bucket name from environment variable or use default
+        bucket_path = os.getenv('GCS_BUCKET_NAME', 'crypto-analysis-storage/analysis_outputs')
+        
+        # Split bucket path if it contains subdirectories
+        if '/' in bucket_path:
+            bucket_name = bucket_path.split('/')[0]
+            prefix = '/'.join(bucket_path.split('/')[1:])
+        else:
+            bucket_name = bucket_path
+            prefix = ""
+        
+        # Get the bucket
+        bucket = storage_client.bucket(bucket_name)
+        
+        # Generate a unique filename
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        unique_id = uuid.uuid4().hex[:8]
+        sanitized_project_name = ''.join(e for e in project_name if e.isalnum() or e == '_' or e == '-').lower()
+        filename = f"analysis_{sanitized_project_name}_{timestamp}_{unique_id}.pdf"
+        
+        # Create a full path with prefix if it exists
+        full_path = f"{prefix}/{filename}" if prefix else filename
+        
+        # Create a new blob
+        blob = bucket.blob(full_path)
+        
+        # Upload the PDF content
+        blob.upload_from_file(pdf_content, content_type='application/pdf')
+        
+        # Get the public URL
+        url = f"https://storage.googleapis.com/{bucket_name}/{full_path}"
+        
+        return url
+    except Exception as e:
+        st.error(f"Error uploading to GCS: {str(e)}")
+        return None
+
 def main():
     try:            
         # Initialize session state for authentication
@@ -1103,7 +1459,7 @@ def main():
                     <h2 style='color: white; font-size: 1.5rem; margin-bottom: 1rem;'>Navigation</h2>
                 </div>
             """, unsafe_allow_html=True)
-            page = st.radio("", ["Whitepaper Analyzer", "Whitepaper Scraper"])
+            page = st.radio("Navigation", ["Whitepaper Analyzer", "Whitepaper Scraper"], label_visibility="collapsed")
             
             # Nota informativa sull'accesso temporaneo senza login
             st.markdown(f"""
@@ -1121,6 +1477,26 @@ def main():
                     <p>Upload a PDF whitepaper for comprehensive analysis</p>
                 </div>
             """, unsafe_allow_html=True)
+            
+            # Show usage limits
+            st.info(f"Usage limits: {st.session_state.analysis_count}/{MAX_ANALYSES} analyses used today")
+            
+            # Check if user has reached the limit
+            if st.session_state.analysis_count >= MAX_ANALYSES:
+                st.warning("You've reached your daily analysis limit. Please try again tomorrow.")
+                
+                # Show stored analyses
+                st.subheader("Your Saved Analyses")
+                stored_analyses = load_stored_analyses()
+                
+                if stored_analyses:
+                    for i, analysis in enumerate(stored_analyses):
+                        with st.expander(f"{analysis['project_name']} - {analysis['timestamp']}"):
+                            st.json(analysis['data'])
+                else:
+                    st.write("No saved analyses found.")
+                
+                return
             
             # Main content area
             col1, col2 = st.columns([2, 1])
@@ -1146,6 +1522,9 @@ def main():
             
                     # Perform analysis
                     with st.spinner("Analyzing Whitepaper..."):
+                        # Increment the analysis counter
+                        st.session_state.analysis_count += 1
+                        
                         # Create tabs for different analyses
                         tab1, tab2, tab3, tab4 = st.tabs(["Tokenomics", "Technology", "Market", "Team"])
                         
@@ -1189,6 +1568,84 @@ def main():
                         with st.expander("Market Sentiment"):
                             market_sentiment = analyze_market_sentiment(project_name)
                             st.write(market_sentiment)
+                        
+                        # Prepare the data for local storage
+                        analysis_data = {
+                            "project_name": project_name,
+                            "total_score": total_score,
+                            "tokenomics": {
+                                "score": tokenomics_score,
+                                "analysis": tokenomics_analysis
+                            },
+                            "technology": {
+                                "score": tech_score,
+                                "analysis": tech_analysis
+                            },
+                            "market": {
+                                "score": market_score,
+                                "analysis": market_analysis
+                            },
+                            "team": {
+                                "score": team_score,
+                                "analysis": team_analysis
+                            },
+                            "additional_data": {
+                                "coinmarketcap": coinmarketcap_data,
+                                "reddit": reddit_sentiment,
+                                "market_sentiment": market_sentiment
+                            }
+                        }
+                        
+                        # Save analysis locally
+                        save_analysis_locally(project_name, analysis_data)
+                        
+                        # Button for saving to GCS
+                        col_cloud, col_local = st.columns(2)
+                        
+                        with col_cloud:
+                            if st.button("Save Analysis to Cloud"):
+                                with st.spinner("Generating and uploading analysis report..."):
+                                    # Generate PDF report
+                                    pdf_report = generate_analysis_pdf(
+                                        project_name, 
+                                        whitepaper_text, 
+                                        tokenomics_analysis, 
+                                        tokenomics_score, 
+                                        tech_analysis, 
+                                        tech_score, 
+                                        market_analysis, 
+                                        market_score, 
+                                        team_analysis, 
+                                        team_score, 
+                                        total_score, 
+                                        coinmarketcap_data, 
+                                        reddit_sentiment, 
+                                        market_sentiment
+                                    )
+                                    
+                                    if pdf_report:
+                                        # Upload to GCS
+                                        gcs_url = upload_to_gcs(pdf_report, project_name)
+                                        
+                                        if gcs_url:
+                                            st.success(f"Analysis report saved successfully!")
+                                            
+                                            # Also offer local download option
+                                            pdf_report.seek(0)  # Reset buffer position
+                                            st.download_button(
+                                                "Download Analysis Report",
+                                                pdf_report,
+                                                f"{project_name}_analysis.pdf",
+                                                "application/pdf"
+                                            )
+                                        else:
+                                            st.error("Failed to upload report to cloud storage.")
+                                    else:
+                                        st.error("Failed to generate PDF report.")
+                        
+                        with col_local:
+                            st.success("Analysis complete!")
+                            st.info("Your report is ready to view.")
 
             # Chat interface in the sidebar
             with col2:
@@ -1225,6 +1682,27 @@ def main():
                 </div>
             """, unsafe_allow_html=True)
             
+            # Show usage limits
+            st.info(f"Usage limits: {st.session_state.scrape_count}/{MAX_SCRAPES} scrapes used today")
+            
+            # Check if user has reached the limit
+            if st.session_state.scrape_count >= MAX_SCRAPES:
+                st.warning("You've reached your daily scraping limit. Please try again tomorrow.")
+                
+                # Show stored scrapes
+                st.subheader("Your Saved Scrapes")
+                stored_scrapes = load_stored_scrapes()
+                
+                if stored_scrapes:
+                    for i, scrape in enumerate(stored_scrapes):
+                        with st.expander(f"Scrape from {scrape['url']} - {scrape['timestamp']}"):
+                            st.write(f"URL: {scrape['url']}")
+                            st.write(f"Scraped on: {scrape['timestamp']}")
+                else:
+                    st.write("No saved scrapes found.")
+                
+                return
+            
             url = st.text_input("Enter GitBook URL or direct PDF link:")
             
             if url:
@@ -1233,14 +1711,28 @@ def main():
                         st.info("Direct PDF link detected. Downloading...")
                         pdf_content = download_pdf(url)
                         if pdf_content:
+                            # Increment the scrape counter
+                            st.session_state.scrape_count += 1
+                            
                             st.success("PDF downloaded successfully!")
+                            
+                            # Get base64 for storage
+                            base64_pdf = get_pdf_as_base64(pdf_content)
+                            
+                            # Save scrape locally
+                            save_scrape_locally(url, base64_pdf)
+                            
+                            # Reset buffer for download
+                            pdf_content.seek(0)
                             st.download_button(
                                 "Download PDF",
                                 pdf_content,
                                 "whitepaper.pdf",
                                 "application/pdf"
                             )
+                            
                             # Extract text for analysis
+                            pdf_content.seek(0)  # Reset buffer position
                             pdf_reader = PyPDF2.PdfReader(pdf_content)
                             text = ""
                             for page in pdf_reader.pages:
@@ -1251,11 +1743,22 @@ def main():
                         st.info("GitBook detected. Scraping content...")
                         content = scrape_gitbook(url)
                         if content:
+                            # Increment the scrape counter
+                            st.session_state.scrape_count += 1
+                            
                             st.success("Content scraped successfully!")
                             
                             # Create PDF
                             pdf_content = create_pdf_from_content(content)
                             if pdf_content:
+                                # Get base64 for storage
+                                base64_pdf = get_pdf_as_base64(pdf_content)
+                                
+                                # Save scrape locally
+                                save_scrape_locally(url, base64_pdf)
+                                
+                                # Reset buffer for download
+                                pdf_content.seek(0)
                                 st.download_button(
                                     "Download PDF",
                                     pdf_content,
@@ -1264,6 +1767,7 @@ def main():
                                 )
                                 
                                 # Extract text for analysis
+                                pdf_content.seek(0)  # Reset buffer position
                                 pdf_reader = PyPDF2.PdfReader(pdf_content)
                                 text = ""
                                 for page in pdf_reader.pages:
@@ -1278,6 +1782,41 @@ def main():
                     
             else:
                         st.error("URL is neither a GitBook nor a direct PDF link. Please check the URL.")
+
+            # Add tab for viewing saved scrapes
+            if st.checkbox("View Saved Scrapes", key="view_scrapes_checkbox", label_visibility="visible"):
+                st.subheader("Your Saved Scrapes")
+                stored_scrapes = load_stored_scrapes()
+                
+                if stored_scrapes:
+                    for i, scrape in enumerate(stored_scrapes):
+                        with st.expander(f"Scrape from {scrape['url']} - {scrape['timestamp']}"):
+                            st.write(f"URL: {scrape['url']}")
+                            st.write(f"Scraped on: {scrape['timestamp']}")
+                else:
+                    st.write("No saved scrapes found.")
+
+        # Add a sidebar element for viewing saved analyses
+        with st.sidebar:
+            if st.checkbox("View Saved Analyses", key="view_analyses_checkbox", label_visibility="visible"):
+                st.subheader("Your Saved Analyses")
+                stored_analyses = load_stored_analyses()
+                
+                if stored_analyses:
+                    for i, analysis in enumerate(stored_analyses):
+                        with st.expander(f"{analysis['project_name']} - {analysis['timestamp']}"):
+                            st.write(f"Project: {analysis['project_name']}")
+                            st.write(f"Total Score: {analysis['data']['total_score']}/100")
+                            st.write(f"Analyzed on: {analysis['timestamp']}")
+                else:
+                    st.write("No saved analyses found.")
+            
+            # Add reset button for testing/admin
+            if st.checkbox("Show Admin", key="show_admin_checkbox", label_visibility="visible"):
+                if st.button("Reset Usage Counters"):
+                    reset_usage_counts()
+                    st.success("Usage counters reset!")
+                    st.rerun()
 
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")

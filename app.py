@@ -835,7 +835,7 @@ def analyze_with_perplexity(text, aspect, max_points):
         {"role": "system", "content": f"You are an expert analyst evaluating blockchain and cryptocurrency projects. For the {aspect} aspect, provide a detailed analysis with clear scoring breakdowns. Always include an explicit overall score out of 10 at the end of your analysis, formatted as 'Overall Score: X/10'."},
         {"role": "user", "content": f"Based on this whitepaper text, analyze the {aspect} aspect. Provide a detailed explanation with specific scoring breakdowns for each sub-aspect, and conclude with an explicit overall score out of 10: {text[:4000]}"}
     ]
-    payload = {"model": "llama-3.1-sonar-small-128k-online", "messages": messages, "temperature": 0.2}
+    payload = {"model": "sonar-pro", "messages": messages, "temperature": 0.2}
     headers = {"Authorization": f"Bearer {PERPLEXITY_API_KEY}", "Content-Type": "application/json"}
     try:
         response = requests.post(url, json=payload, headers=headers)
@@ -862,7 +862,7 @@ def chat_with_perplexity(user_message, context):
     ]
     
     payload = {
-        "model": "llama-3.1-sonar-small-128k-online",
+        "model": "sonar-pro",
         "messages": messages,
         "temperature": 0.7
     }
@@ -885,7 +885,7 @@ def analyze_coinmarketcap_data(project_name):
         {"role": "system", "content": "You are a cryptocurrency market data analyst. Search and analyze CoinMarketCap data for the specified project."},
         {"role": "user", "content": f"Search and analyze CoinMarketCap data for {project_name}. Include price, market cap, volume, trends, and key metrics."}
     ]
-    payload = {"model": "llama-3.1-sonar-small-128k-online", "messages": messages, "temperature": 0.3}
+    payload = {"model": "sonar-pro", "messages": messages, "temperature": 0.3}
     headers = {"Authorization": f"Bearer {PERPLEXITY_API_KEY}", "Content-Type": "application/json"}
     try:
         response = requests.post(url, json=payload, headers=headers)
@@ -900,7 +900,7 @@ def analyze_reddit_sentiment(project_name):
         {"role": "system", "content": "You are a social media analyst specializing in cryptocurrency communities."},
         {"role": "user", "content": f"Analyze Reddit discussions about {project_name}. Include community sentiment, discussions, and trends."}
     ]
-    payload = {"model": "llama-3.1-sonar-small-128k-online", "messages": messages, "temperature": 0.3}
+    payload = {"model": "sonar-pro", "messages": messages, "temperature": 0.3}
     headers = {"Authorization": f"Bearer {PERPLEXITY_API_KEY}", "Content-Type": "application/json"}
     try:
         response = requests.post(url, json=payload, headers=headers)
@@ -915,7 +915,7 @@ def analyze_market_sentiment(project_name):
         {"role": "system", "content": "You are a cryptocurrency market analyst."},
         {"role": "user", "content": f"Analyze market sentiment and reputation of {project_name}. Include social media presence, developments, and market trends."}
     ]
-    payload = {"model": "llama-3.1-sonar-small-128k-online", "messages": messages, "temperature": 0.7}
+    payload = {"model": "sonar-pro", "messages": messages, "temperature": 0.7}
     headers = {"Authorization": f"Bearer {PERPLEXITY_API_KEY}", "Content-Type": "application/json"}
     try:
         response = requests.post(url, json=payload, headers=headers)
@@ -930,7 +930,7 @@ def extract_project_name(text):
         {"role": "system", "content": "You are an expert at analyzing whitepapers. Extract the main project/token name from the whitepaper text. Return ONLY the name, nothing else."},
         {"role": "user", "content": f"What is the name of the project/token described in this whitepaper? Return ONLY the name: {text[:2000]}"}
     ]
-    payload = {"model": "llama-3.1-sonar-small-128k-online", "messages": messages, "temperature": 0.1}
+    payload = {"model": "sonar-pro", "messages": messages, "temperature": 0.1}
     headers = {"Authorization": f"Bearer {PERPLEXITY_API_KEY}", "Content-Type": "application/json"}
     try:
         response = requests.post(url, json=payload, headers=headers)
